@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  AGENT
+}
+
+/// Agency is the white-label reseller owner sitting above one or more Tenants.
+/// Inert until Phase 18 (White-Label / Reseller Architecture) but modeled now
+/// so Tenant does not need a breaking schema change later.
+model Agency {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenants Tenant[]
+
+  @@map("agencies")
+}
+
+/// A Tenant is one deployed business (a clinic, salon, real estate office, etc.).
+/// This is the unit of isolation for every tenant-scoped model.
+model Tenant {
+  id        String   @id @default(cuid())
+  agencyId  String?
+  agency    Agency?  @relation(fields: [agencyId], references: [id])
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+
+  @@index([agencyId])
+  @@map("tenants")
+}
+
+/// A staff member of a Tenant. Authenticated via Supabase Auth; supabaseUserId
+/// links this row to the Supabase auth.users record.
+///
+/// TENANT-SCOPED MODEL: every query against User MUST be scoped by tenantId.
+/// This is enforced by the Prisma Client Extension in src/tenant.ts — do not
+/// query this model through any client other than getTenantDb(tenantId).
+model User {
+  id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  supabaseUserId String   @unique
+  email          String
+  name           String?
+  role           Role     @default(AGENT)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
