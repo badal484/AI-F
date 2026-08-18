@@ -7,7 +7,8 @@ A multi-tenant SaaS + agency white-label platform that deploys AI assistants for
 Under active development, following the phase-gated workflow defined in [MASTER_INSTRUCTIONS.md](./MASTER_INSTRUCTIONS.md).
 
 - [PHASE 0 — Initial Audit](./docs/INITIAL_AUDIT.md) ✅
-- PHASE 1 — Foundation 🚧 (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) once created)
+- PHASE 1 — Foundation ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
+- PHASE 2 — Business Core ⏳ next
 
 ## Stack
 
