@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { resolveTenantContext } from "@/domains/auth/session";
 import { signOut } from "@/domains/auth/actions";
 import { Button } from "@/components/ui/button";
-import { DashboardNav } from "@/domains/business-core/components/dashboard-nav";
+import { DashboardNav } from "./_components/dashboard-nav";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const context = await resolveTenantContext();

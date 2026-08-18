@@ -2,15 +2,18 @@
 
 PostgreSQL via Supabase. Prisma ORM (v7, driver-adapter mode — see `docs/ARCHITECTURE.md` for why). Schema source of truth: `packages/db/prisma/schema.prisma`.
 
-## Current schema (through Phase 2 — Business Core)
+## Current schema (through Phase 3 — CRM)
 
 ```
-Agency (1) ──< (N) Tenant (1) ──< (N) User
+Agency (1) ──< (N) Tenant (1) ──< (N) User ──< (N) Lead (assignedTo)
                         │
                         ├──< (N) Location (1) ──< (N) LocationHours
                         ├──< (N) Service
-                        └──< (N) StaffMember >── (0..1) Location
-                                       └── (0..1) User
+                        ├──< (N) StaffMember >── (0..1) Location
+                        │              └── (0..1) User
+                        ├──< (N) Customer (1) ──< (N) Lead
+                        ├──< (N) Lead
+                        └──< (N) Tag >──< (N) Customer, Lead  (implicit m2m)
 ```
 
 - **Agency** — a white-label reseller owner sitting above one or more Tenants. Inert until Phase 18; modeled now so `Tenant` doesn't need a breaking schema change later.
@@ -20,20 +23,25 @@ Agency (1) ──< (N) Tenant (1) ──< (N) User
 - **LocationHours** — a Location's regular weekly operating hours, one row per `(locationId, dayOfWeek)` (0=Sunday..6=Saturday), `openTime`/`closeTime` as `"HH:mm"` strings, `isClosed` to override a day.
 - **Service** — a bookable service the Tenant offers (`durationMinutes`, `priceCents`, `currency`, `isActive`). Phase 7's Booking Engine books Appointments against these.
 - **StaffMember** — a bookable resource (stylist, doctor, agent) who provides Services. Optionally linked to a `User` (`userId`, unique) if they also have dashboard login access — most won't, since being bookable doesn't require a login. Optionally linked to a `Location`.
+- **Customer** — an identified end-customer of the Tenant. A `Lead` converts into a Customer once qualified/won (`Lead.customerId`).
+- **Lead** — a prospect moving through `LeadStage` (`NEW → CONTACTED → QUALIFIED → WON/LOST`) — this enum **is** Phase 3's "Conversation pipeline." Optionally linked to a `Customer` and/or `assignedTo` (a `User`). `source` records where it came from (`WEBSITE | WHATSAPP | MANUAL | REFERRAL | OTHER`).
+- **Tag** — a tenant-defined label, many-to-many with both `Customer` and `Lead` via Prisma's implicit relation tables (no explicit join model needed — see the isolation note below on why that's still safe).
 
-Later phases add further tenant-scoped models under this same Tenant (Customer, Lead, Conversation, Message, Appointment, KnowledgeDocument, DocumentChunk, AutomationRule, Subscription, etc.) per the sketch in `docs/INITIAL_AUDIT.md` §3.2.
+> **Naming note:** "Conversation pipeline" in the Phase 3 spec (MASTER_INSTRUCTIONS.md) refers to a Lead's position in the sales pipeline (`LeadStage`), not chat message storage. Actual `Conversation`/`Message` tables backing the chat UI are built in Phase 4 (Universal Inbox), which is what actually needs them — see `docs/BUILD_PROGRESS.md`'s Phase 3 entry for the full reasoning.
+
+Later phases add further tenant-scoped models under this same Tenant (Conversation, Message, Appointment, KnowledgeDocument, DocumentChunk, AutomationRule, Subscription, etc.) per the sketch in `docs/INITIAL_AUDIT.md` §3.2.
 
 ## Tenant isolation
 
 Enforced at the ORM layer via a Prisma Client Extension (`packages/db/src/tenant.ts`), not by convention:
 
-- `TENANT_SCOPED_MODELS` is the single source of truth for which models carry a `tenantId` column (`User`, `Location`, `LocationHours`, `Service`, `StaffMember`). **Every new tenant-scoped model added to `schema.prisma` must be added to this set**, or the extension silently won't protect it.
+- `TENANT_SCOPED_MODELS` is the single source of truth for which models carry a `tenantId` column (`User`, `Location`, `LocationHours`, `Service`, `StaffMember`, `Customer`, `Lead`, `Tag`). **Every new tenant-scoped model added to `schema.prisma` must be added to this set**, or the extension silently won't protect it.
 - `getTenantDb(tenantId)` returns a Prisma client with `tenantId` auto-injected into `where` (reads/updates/deletes) and `data` (creates) for every operation against a scoped model. The caller cannot omit or override it. Call sites also pass `tenantId` explicitly in `create`/`upsert` `data` (TypeScript can't see the runtime injection, so the field is still required at compile time) — the extension's injection is what actually enforces it, the explicit value is defense-in-depth.
 - `SELF_SCOPED_MODELS` handles the one model whose own `id` *is* the tenant boundary rather than a separate `tenantId` column: `Tenant` itself. Through `getTenantDb()`, reads/updates against `Tenant` are restricted to `where: { id: tenantId }` — used by the Settings page to read/update the current tenant's own profile without reaching for `getPlatformDb()`. `create`/`delete`/etc. on `Tenant` are deliberately unsupported through this path (tenant creation happens during sign-up, before a `tenantId` exists — see `getPlatformDb()` below).
 - Application code (`apps/web`, `apps/worker`) must never import `PrismaClient` directly — only `getTenantDb(tenantId)` or `getPlatformDb()`, both exported from `@aif/db`.
 - `tenantId` must always be derived server-side from the authenticated session (`resolveTenantContext()` / `requireTenantContext()` / `requireWriteAccess()` in `apps/web/src/domains/auth/`) or a verified job payload — never trusted from client input.
 - `getPlatformDb()` bypasses tenant scoping entirely. It exists for exactly two legitimate uses: (1) resolving which tenant a bare Supabase session belongs to, before a `tenantId` exists to scope with, and (2) the Platform Admin Dashboard (Phase 13). Its name and import path are deliberately distinct from `getTenantDb()` so any cross-tenant access is visually obvious in a diff.
-- Foreign keys that point *within* the same tenant (e.g. `StaffMember.locationId`) are not automatically validated as belonging to that tenant just because the extension scopes the `StaffMember` row itself — a call site must separately confirm the referenced `Location` resolves through `getTenantDb(tenantId)` before writing the FK. See `assertLocationBelongsToTenant()` in `apps/web/src/domains/business-core/staff/actions.ts` and the equivalent check in `updateLocationHours`.
+- Foreign keys that point *within* the same tenant (e.g. `StaffMember.locationId`, `Lead.customerId`/`assignedToId`, or a many-to-many `tags: { connect/set: [...] }`) are **not** automatically validated as belonging to that tenant just because the extension scopes the top-level row's own operation — a nested relation write inside `data` is not re-scoped. Every call site accepting a foreign id from input must separately confirm it resolves through the same `getTenantDb(tenantId)` client before using it. Patterns: `assertLocationBelongsToTenant()` / `assertBelongsToTenant()` (single FK — `apps/web/src/domains/business-core/staff/actions.ts`, `apps/web/src/domains/crm/leads/actions.ts`) and `assertTagsBelongToTenant()` (id array for an m2m relation — `apps/web/src/domains/crm/shared.ts`).
 - Write access to business-core data (Tenant profile, Locations, Services, Staff) is further restricted to the `OWNER`/`ADMIN` roles via `requireWriteAccess()` (`apps/web/src/domains/auth/guard.ts`) — `AGENT` is a lower-privilege role for day-to-day conversation/booking handling, not business configuration.
 
 ## Multi-table writes

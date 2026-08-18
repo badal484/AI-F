@@ -15,6 +15,9 @@ const TENANT_SCOPED_MODELS = new Set<string>([
   "LocationHours",
   "Service",
   "StaffMember",
+  "Customer",
+  "Lead",
+  "Tag",
 ]);
 
 /**
@@ -55,6 +58,17 @@ type Operation =
  * touch tenant-scoped data. tenantId must be derived server-side from the
  * authenticated session / verified job payload — never trust a tenantId
  * supplied directly by a client request.
+ *
+ * IMPORTANT LIMITATION: this only scopes the TOP-LEVEL operation's own
+ * `where`/`data`. A nested relation write inside `data` — e.g.
+ * `customer.update({ data: { tags: { connect: [{ id: tagId }] } } })` — is
+ * NOT automatically checked against the tenant. Any call site accepting a
+ * foreign id from input (a locationId, tagIds, customerId, assignedToId,
+ * ...) MUST separately verify that id resolves through THIS SAME
+ * getTenantDb(tenantId) client before using it in a nested write, or a
+ * caller could attach another tenant's row by id. See
+ * `assertLocationBelongsToTenant()` in
+ * apps/web/src/domains/business-core/staff/actions.ts for the pattern.
  */
 export function getTenantDb(tenantId: string) {
   if (!tenantId) {

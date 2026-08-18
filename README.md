@@ -8,8 +8,9 @@ Under active development, following the phase-gated workflow defined in [MASTER_
 
 - [PHASE 0 — Initial Audit](./docs/INITIAL_AUDIT.md) ✅
 - PHASE 1 — Foundation ✅
-- PHASE 2 — Business Core ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
-- PHASE 3 — CRM ⏳ next
+- PHASE 2 — Business Core ✅
+- PHASE 3 — CRM ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
+- PHASE 4 — Universal Inbox ⏳ next
 
 ## Stack
 

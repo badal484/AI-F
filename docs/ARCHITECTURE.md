@@ -25,7 +25,8 @@ app/                    Next.js routes — thin, delegate to domains/
 domains/
   auth/                 session resolution, sign in/up/out actions, guard.ts (role gating), auth UI
   business-core/         tenant profile, locations (+hours), services, staff — actions + UI, per entity
-  (crm, inbox, ai-agent, booking, rag, whatsapp,
+  crm/                   customers, leads (+ pipeline stage), tags — actions + UI, per entity; shared.ts for cross-entity FK checks
+  (inbox, ai-agent, booking, rag, whatsapp,
    billing, platform-admin, analytics — added as their phases land)
 components/ui/          shadcn/ui primitives only
 lib/                    supabase clients, env helpers, utils

@@ -54,9 +54,24 @@ No migrations have been run against a real database. Once Supabase credentials e
 - Services are USD-only for now (`currency` defaults to `"usd"` and isn't exposed in the form); multi-currency support isn't needed until a real multi-currency tenant exists.
 - Country is a free-text field, not a validated country selector.
 
-## PHASE 3 — CRM ⏳ not started
+## PHASE 3 — CRM ✅ (2026-08-19)
 
-## PHASE 3 — CRM ⏳ not started
+**Engineering judgment call (documented per MASTER_INSTRUCTIONS.md §9):** MASTER_INSTRUCTIONS.md's Phase 3 line item is "Customers, Leads, Tags, Conversation pipeline." Read literally against the Phase 4 line item — "Universal Inbox (Chat UI, Message assignment, Human handoff)" — building chat `Conversation`/`Message` storage in *both* phases would be redundant scope. Interpreted "Conversation pipeline" as CRM terminology for a Lead's sales-pipeline stage (`LeadStage`: NEW → CONTACTED → QUALIFIED → WON/LOST) rather than literal chat message storage, and deferred `Conversation`/`Message` tables to Phase 4, which is what actually needs them for its Chat UI. See `docs/DATABASE.md`'s naming note.
+
+**Built:**
+- Schema: `Customer`, `Lead` (with `LeadStage`/`LeadSource` enums), `Tag` (implicit many-to-many with both Customer and Lead) — all tenant-scoped. `Lead` optionally links to a `Customer` and/or an `assignedTo` `User`.
+- Tenant isolation extended: `Customer`, `Lead`, `Tag` added to `TENANT_SCOPED_MODELS`. Documented and applied the "nested relation writes aren't auto-scoped" invariant explicitly for tag-attachment (`assertTagsBelongToTenant`) and cross-entity FKs (`assertBelongsToTenant` for `customerId`/`assignedToId`) — see `docs/DATABASE.md`.
+- Zod schemas (`packages/shared/src/schemas/crm.ts`) and Server Actions per entity (`apps/web/src/domains/crm/{customers,leads,tags}/actions.ts`), same role-gated-write pattern as Phase 2. A dedicated `updateLeadStage` action powers a lightweight pipeline-stage move separate from the full edit form.
+- UI: `/dashboard/customers` (CRUD + tag picker), `/dashboard/leads` (CRUD + inline stage `Select` per row with optimistic update/rollback + tag picker + customer/assignee pickers), `/dashboard/tags` (create/delete, chip-style list). A reusable `TagPicker` component is shared between the Customer and Lead forms. Dashboard nav extended; moved to `app/dashboard/_components/` since it's cross-domain, not business-core-specific.
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 4 workspaces.
+- Smoke test: `next dev` — all three new `/dashboard/*` routes correctly 307-redirect to `/login` when unauthenticated; `/api/health` unaffected.
+- As with Phase 2, full CRUD flows have **not** been exercised against a live database — Supabase/Postgres credentials remain NOT CONFIGURED (unchanged from Phase 1/2).
+
+**Known, accepted limitations (documented, not blocking):**
+- Leads UI is a sortable table with a stage-select column, not a drag-and-drop kanban board. Functionally complete for moving a lead through the pipeline; a kanban view is a polish-phase candidate, not a Definition-of-Done requirement.
+- Deleting a `Tag` detaches it from every Customer/Lead it's attached to (Prisma's implicit m2m join rows are removed automatically) with no confirmation of *what* it's attached to beyond a generic warning in the delete dialog.
 
 ## PHASE 4 — Universal Inbox ⏳ not started
 

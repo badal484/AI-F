@@ -8,5 +8,10 @@ export type {
   LocationHours,
   Service,
   StaffMember,
+  Customer,
+  Lead,
+  LeadStage,
+  LeadSource,
+  Tag,
   Prisma,
 } from "./generated/prisma/client";

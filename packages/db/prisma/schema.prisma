@@ -13,6 +13,26 @@ enum Role {
   AGENT
 }
 
+/// A Lead's position in the sales/conversation pipeline — this IS Phase 3's
+/// "Conversation pipeline" (tracking where a prospect's conversation stands),
+/// not chat message storage. Chat Conversation/Message tables are built in
+/// Phase 4 (Universal Inbox), which is what actually needs them.
+enum LeadStage {
+  NEW
+  CONTACTED
+  QUALIFIED
+  WON
+  LOST
+}
+
+enum LeadSource {
+  WEBSITE
+  WHATSAPP
+  MANUAL
+  REFERRAL
+  OTHER
+}
+
 /// Agency is the white-label reseller owner sitting above one or more Tenants.
 /// Inert until Phase 18 (White-Label / Reseller Architecture) but modeled now
 /// so Tenant does not need a breaking schema change later.
@@ -47,6 +67,9 @@ model Tenant {
   locations    Location[]
   services     Service[]
   staffMembers StaffMember[]
+  customers    Customer[]
+  leads        Lead[]
+  tags         Tag[]
 
   @@index([agencyId])
   @@map("tenants")
@@ -71,7 +94,8 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  staffMember StaffMember?
+  staffMember   StaffMember?
+  assignedLeads Lead[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -173,4 +197,76 @@ model StaffMember {
   @@index([tenantId])
   @@index([locationId])
   @@map("staff_members")
+}
+
+/// An identified end-customer of the Tenant's business. A Lead converts into
+/// a Customer once qualified/won — see Lead.customerId.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model Customer {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  email     String?
+  phone     String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leads Lead[]
+  tags  Tag[]
+
+  @@index([tenantId])
+  @@map("customers")
+}
+
+/// A prospective customer moving through the sales/conversation pipeline
+/// (see LeadStage). May optionally already be linked to a Customer record
+/// and/or assigned to a dashboard User to work.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model Lead {
+  id           String     @id @default(cuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id])
+  customerId   String?
+  customer     Customer?  @relation(fields: [customerId], references: [id])
+  assignedToId String?
+  assignedTo   User?      @relation(fields: [assignedToId], references: [id])
+  name         String
+  email        String?
+  phone        String?
+  source       LeadSource @default(OTHER)
+  stage        LeadStage  @default(NEW)
+  valueCents   Int?
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  tags Tag[]
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@index([assignedToId])
+  @@map("leads")
+}
+
+/// A tenant-defined label attachable to Customers and/or Leads.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model Tag {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  color     String   @default("#6b7280")
+  createdAt DateTime @default(now())
+
+  customers Customer[]
+  leads     Lead[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("tags")
 }
