@@ -34,7 +34,27 @@ See `docs/INITIAL_AUDIT.md`. Approved decisions: Supabase (DB+Auth+Storage), Ups
 
 No migrations have been run against a real database. Once Supabase credentials exist, run `npm run migrate:dev -w @aif/db` to apply the initial migration.
 
-## PHASE 2 — Business Core ⏳ not started
+## PHASE 2 — Business Core ✅ (2026-08-19)
+
+**Built:**
+- Schema: `Tenant` gains profile fields (`timezone`, `phone`, `website`, `description`); new tenant-scoped models `Location`, `LocationHours`, `Service`, `StaffMember` (see `docs/DATABASE.md` for the full shape and relations).
+- Tenant isolation extended: all four new models added to `TENANT_SCOPED_MODELS`; a new `SELF_SCOPED_MODELS` mechanism added to `packages/db/src/tenant.ts` so `getTenantDb()` can read/update the `Tenant` row itself (scoped to `id = tenantId`) without reaching for `getPlatformDb()`.
+- Role-gated writes: `apps/web/src/domains/auth/guard.ts` (`requireTenantContext()`, `requireWriteAccess()`) — business-core mutations require OWNER/ADMIN; reads require any authenticated role.
+- Zod schemas for every entity (`packages/shared/src/schemas/business-core.ts`) plus a `nullifyEmptyStrings()` helper so blank optional form fields store `null`, not `""`.
+- Server Actions per domain (`apps/web/src/domains/business-core/{profile,locations,services,staff}/actions.ts`) — list/create/update/delete, all Zod-validated, all tenant-isolated, cross-tenant FK references (e.g. a StaffMember's `locationId`) explicitly re-validated against the tenant.
+- UI: `/dashboard/settings` (tenant profile), `/dashboard/locations` (CRUD + a weekly hours editor dialog), `/dashboard/services` (CRUD), `/dashboard/staff` (CRUD, with a location picker) — all using TanStack Query (`useQuery`/`useMutation`) with optimistic cache updates, per MASTER_INSTRUCTIONS.md §6. A shared `/dashboard` layout adds nav + sign-out for every sub-page.
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 4 workspaces.
+- Smoke test: `next dev` — all five `/dashboard/*` routes correctly 307-redirect to `/login` when unauthenticated (inherited from the shared dashboard layout guard); `/api/health` unaffected.
+- Full CRUD flows (create/edit/delete a Location, Service, StaffMember; edit hours; edit tenant profile) have **not** been exercised against a live database — Supabase/Postgres credentials are still NOT CONFIGURED in this environment (unchanged from Phase 1). Once `DATABASE_URL` and Supabase Auth env vars are set and a migration is applied (`npm run migrate:dev -w @aif/db`), these flows should be manually verified end-to-end in a browser before Phase 3 relies on this data.
+
+**Known, accepted limitations (documented, not blocking):**
+- Deleting a `Location` that has `StaffMember`s pointing at it will fail on the FK constraint (no `onDelete` override was set — intentionally Restrict, not silently `SetNull`, so staff don't get silently detached). The UI surfaces this as a generic "Something went wrong" toast rather than a specific message; revisit if this proves confusing in practice.
+- Services are USD-only for now (`currency` defaults to `"usd"` and isn't exposed in the form); multi-currency support isn't needed until a real multi-currency tenant exists.
+- Country is a free-text field, not a validated country selector.
+
+## PHASE 3 — CRM ⏳ not started
 
 ## PHASE 3 — CRM ⏳ not started
 

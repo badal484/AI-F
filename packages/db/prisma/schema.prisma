@@ -31,22 +31,31 @@ model Agency {
 /// A Tenant is one deployed business (a clinic, salon, real estate office, etc.).
 /// This is the unit of isolation for every tenant-scoped model.
 model Tenant {
-  id        String   @id @default(cuid())
-  agencyId  String?
-  agency    Agency?  @relation(fields: [agencyId], references: [id])
-  name      String
-  slug      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  agencyId    String?
+  agency      Agency?  @relation(fields: [agencyId], references: [id])
+  name        String
+  slug        String   @unique
+  timezone    String   @default("UTC")
+  phone       String?
+  website     String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  users User[]
+  users        User[]
+  locations    Location[]
+  services     Service[]
+  staffMembers StaffMember[]
 
   @@index([agencyId])
   @@map("tenants")
 }
 
-/// A staff member of a Tenant. Authenticated via Supabase Auth; supabaseUserId
-/// links this row to the Supabase auth.users record.
+/// A dashboard user (login account) belonging to a Tenant. Authenticated via
+/// Supabase Auth; supabaseUserId links this row to the Supabase auth.users
+/// record. Distinct from StaffMember, which represents a bookable resource
+/// (e.g. a stylist or doctor) — a StaffMember may or may not also be a User.
 ///
 /// TENANT-SCOPED MODEL: every query against User MUST be scoped by tenantId.
 /// This is enforced by the Prisma Client Extension in src/tenant.ts — do not
@@ -62,7 +71,106 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  staffMember StaffMember?
+
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
+}
+
+/// A physical location a Tenant operates from.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model Location {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  name         String
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String?
+  postalCode   String?
+  country      String   @default("US")
+  phone        String?
+  timezone     String   @default("UTC")
+  isPrimary    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  hours        LocationHours[]
+  staffMembers StaffMember[]
+
+  @@index([tenantId])
+  @@map("locations")
+}
+
+/// A Location's regular weekly operating hours. dayOfWeek: 0 = Sunday ... 6 =
+/// Saturday. openTime/closeTime are "HH:mm" 24-hour local time strings in the
+/// Location's own timezone. isClosed overrides open/close for that day.
+///
+/// TENANT-SCOPED MODEL — tenantId is denormalized here (not just reachable
+/// via Location) so a direct query against this model is still isolated by
+/// the Prisma Client Extension without requiring a join.
+model LocationHours {
+  id         String   @id @default(cuid())
+  tenantId   String
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  dayOfWeek  Int
+  openTime   String   @default("09:00")
+  closeTime  String   @default("17:00")
+  isClosed   Boolean  @default(false)
+
+  @@unique([locationId, dayOfWeek])
+  @@index([tenantId])
+  @@map("location_hours")
+}
+
+/// A bookable service the Tenant offers (Phase 7's Booking Engine books
+/// Appointments against these).
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model Service {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  name            String
+  description     String?
+  durationMinutes Int
+  priceCents      Int
+  currency        String   @default("usd")
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("services")
+}
+
+/// A bookable resource (e.g. a stylist, doctor, agent) who provides Services.
+/// Optionally linked to a User if they also have dashboard login access —
+/// most StaffMembers won't, since being bookable doesn't require a login.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model StaffMember {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  userId     String?   @unique
+  user       User?     @relation(fields: [userId], references: [id])
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id])
+  name       String
+  email      String?
+  phone      String?
+  title      String?
+  photoUrl   String?
+  isBookable Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([locationId])
+  @@map("staff_members")
 }

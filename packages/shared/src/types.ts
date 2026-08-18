@@ -15,3 +15,6 @@ export interface TenantContext {
 }
 
 export type ActionResult = { error: string } | { success: true };
+
+/** Like ActionResult, but returns the affected record for optimistic-update reconciliation. */
+export type DataActionResult<T> = { error: string } | { data: T };

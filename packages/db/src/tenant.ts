@@ -9,7 +9,24 @@ import { getBasePrisma } from "./client";
  * A model left out of this set is silently NOT isolated by the extension
  * below — this is the single place that decides what "tenant-scoped" means.
  */
-const TENANT_SCOPED_MODELS = new Set<string>(["User"]);
+const TENANT_SCOPED_MODELS = new Set<string>([
+  "User",
+  "Location",
+  "LocationHours",
+  "Service",
+  "StaffMember",
+]);
+
+/**
+ * Models whose own `id` IS the tenant boundary, rather than carrying a
+ * separate `tenantId` column — currently just Tenant itself (e.g. reading
+ * or updating the current tenant's profile). Only read/update are allowed
+ * through this path: Tenant creation happens during sign-up provisioning
+ * (before a tenantId exists to scope with, so it goes through
+ * getPlatformDb() instead — see apps/web's signUp action) and Tenant
+ * deletion isn't supported yet.
+ */
+const SELF_SCOPED_MODELS = new Set<string>(["Tenant"]);
 
 type Operation =
   | "findUnique"
@@ -49,12 +66,32 @@ export function getTenantDb(tenantId: string) {
     query: {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
+          const scopedArgs = args as Record<string, unknown>;
+          const op = operation as Operation;
+
+          if (SELF_SCOPED_MODELS.has(model)) {
+            switch (op) {
+              case "findUnique":
+              case "findUniqueOrThrow":
+              case "findFirst":
+              case "findFirstOrThrow":
+              case "findMany":
+              case "count":
+                scopedArgs.where = { ...(scopedArgs.where as object | undefined), id: tenantId };
+                return query(scopedArgs);
+              case "update":
+                scopedArgs.where = { ...(scopedArgs.where as object | undefined), id: tenantId };
+                return query(scopedArgs);
+              default:
+                throw new Error(
+                  `getTenantDb() does not support ${operation} on ${model} — only reads and update are allowed on the tenant's own profile`,
+                );
+            }
+          }
+
           if (!TENANT_SCOPED_MODELS.has(model)) {
             return query(args);
           }
-
-          const scopedArgs = args as Record<string, unknown>;
-          const op = operation as Operation;
 
           switch (op) {
             case "findUnique":

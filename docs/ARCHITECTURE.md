@@ -23,12 +23,17 @@ Within `apps/web/src`, code is organized by domain rather than by route:
 ```
 app/                    Next.js routes — thin, delegate to domains/
 domains/
-  auth/                 session resolution, sign in/up/out actions, auth UI
-  (business-core, crm, inbox, ai-agent, booking, rag, whatsapp,
+  auth/                 session resolution, sign in/up/out actions, guard.ts (role gating), auth UI
+  business-core/         tenant profile, locations (+hours), services, staff — actions + UI, per entity
+  (crm, inbox, ai-agent, booking, rag, whatsapp,
    billing, platform-admin, analytics — added as their phases land)
 components/ui/          shadcn/ui primitives only
 lib/                    supabase clients, env helpers, utils
 ```
+
+## Server Actions as the data layer
+
+CRUD domains (business-core, and later phases) skip a separate REST/route-handler layer: Server Actions (`"use server"` functions under each domain's `actions.ts`) are called directly as TanStack Query `queryFn`/`mutationFn`, since a Server Action is just an async function that already runs server-side regardless of whether it's invoked from a `<form action>` or a client component's `fetch`-free call. This keeps Zod validation and tenant-isolation logic in one place instead of duplicating it across an API route and an action. List pages use `useQuery` + `useMutation` with optimistic cache updates (`queryClient.setQueryData`) per MASTER_INSTRUCTIONS.md §6; single-record forms (e.g. Settings) use `useMutation` alone. Every mutating action is wrapped in `requireWriteAccess()` (OWNER/ADMIN only) and every read in `requireTenantContext()` (any authenticated role) — see `apps/web/src/domains/auth/guard.ts`.
 
 ## Multi-tenant isolation
 

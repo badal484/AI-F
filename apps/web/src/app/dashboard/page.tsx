@@ -2,9 +2,7 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { resolveTenantContext } from "@/domains/auth/session";
-import { signOut } from "@/domains/auth/actions";
 
 export const metadata: Metadata = { title: "Dashboard — AI-F" };
 
@@ -16,17 +14,10 @@ export default async function DashboardPage() {
   }
 
   return (
-    <main className="flex flex-1 flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">{context.tenantName}</h1>
-          <p className="text-sm text-muted-foreground">/{context.tenantSlug}</p>
-        </div>
-        <form action={signOut}>
-          <Button type="submit" variant="outline">
-            Sign out
-          </Button>
-        </form>
+    <div className="flex flex-col gap-6">
+      <div>
+        <h1 className="text-2xl font-semibold">{context.tenantName}</h1>
+        <p className="text-sm text-muted-foreground">/{context.tenantSlug}</p>
       </div>
 
       <Card className="max-w-md">
@@ -51,6 +42,6 @@ export default async function DashboardPage() {
           </div>
         </CardContent>
       </Card>
-    </main>
+    </div>
   );
 }
