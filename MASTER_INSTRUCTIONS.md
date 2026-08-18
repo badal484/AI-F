@@ -117,3 +117,5 @@ When I give you this command, DO NOT write application code.
      - `npm run lint`
      - `npm run build`
    - If any of these fail, fix the errors before presenting the solution to the user.
+5. **No AI Co-Authorship:** NEVER add `Co-Authored-By: Claude`, `Generated with Claude Code`, or any similar trailer/attribution to git commits in this repository. Claude must not appear in the GitHub Contributors list or commit history authorship — commits are authored solely under the product owner's git identity.
+6. **Maintain GitHub:** After each approved phase is implemented, tested, and committed locally, push to the `origin` remote (`git push origin main`) so the hosted GitHub repository stays in sync with local work. Do not leave completed, approved phases committed only locally.
