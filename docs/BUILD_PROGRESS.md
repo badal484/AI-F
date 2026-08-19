@@ -73,7 +73,27 @@ No migrations have been run against a real database. Once Supabase credentials e
 - Leads UI is a sortable table with a stage-select column, not a drag-and-drop kanban board. Functionally complete for moving a lead through the pipeline; a kanban view is a polish-phase candidate, not a Definition-of-Done requirement.
 - Deleting a `Tag` detaches it from every Customer/Lead it's attached to (Prisma's implicit m2m join rows are removed automatically) with no confirmation of *what* it's attached to beyond a generic warning in the delete dialog.
 
-## PHASE 4 — Universal Inbox ⏳ not started
+**Correction (2026-08-19, made during Phase 4 work, before either was pushed further):** Customer and Lead create/update/delete were originally gated behind `requireWriteAccess()` (OWNER/ADMIN only). That's wrong — Customers and Leads are exactly the day-to-day CRM work `AGENT` exists for, not business configuration. Caught while wiring the same mistake into Phase 4's Inbox actions and fixed in both places before this build reached the product owner: `apps/web/src/domains/crm/customers/actions.ts` and `apps/web/src/domains/crm/leads/actions.ts` now use `requireTenantContext()` (any authenticated role) for all mutations; only Tags remain OWNER/ADMIN-gated (a lower-frequency "define what exists" action, not "use what exists"). See `docs/DATABASE.md`'s Tenant isolation section for the corrected write-access model.
+
+## PHASE 4 — Universal Inbox ✅ (2026-08-19)
+
+**Built:**
+- Schema: `Conversation` (one row per chat thread — `channel`, `status`, `assignedTo`, optionally linked to a `Customer`/`Lead`) and `Message` (`senderType`: `CUSTOMER | AI | STAFF`) — both tenant-scoped. New enums `ConversationChannel`, `ConversationStatus`, `MessageSender`. "Message assignment" is modeled as assigning the whole Conversation thread to a `User`; "Human handoff" is `ConversationStatus.HUMAN_REQUIRED`, settable manually since there's no AI yet to set it automatically (that's Phase 5).
+- Tenant isolation extended: `Conversation`, `Message` added to `TENANT_SCOPED_MODELS`; cross-entity FK checks (`customerId`, `leadId`, `assignedToId`) follow the established `assertBelongsToTenant()` pattern.
+- Zod schemas (`packages/shared/src/schemas/inbox.ts`) and Server Actions (`apps/web/src/domains/inbox/{conversations,messages}/actions.ts`). `createConversation` and `sendMessage` each wrap a multi-table write (Conversation + its first Message; Message + parent `Conversation.lastMessageAt`) in `$transaction`, per MASTER_INSTRUCTIONS.md §4.
+- UI: `/dashboard/inbox` — a two-pane chat layout (`ConversationList` + `ConversationThread`, orchestrated by `InboxView`). Starting a new conversation requires an initial message (staff logging what a customer said, since there's no live channel yet — not fake data, just manual entry of a real interaction). The compose box lets staff choose "Reply as staff" or "Log customer message"; "AI" is not offered as a sender choice anywhere in the UI, since there is no AI in this phase and offering it would misrepresent who said what.
+- Extracted `listAssignableUsers()` out of the CRM domain into `apps/web/src/domains/auth/users.ts`, since both CRM (Lead assignment) and Inbox (Conversation assignment) need it and neither domain should own it.
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 4 workspaces.
+- Smoke test: `next dev` — `/dashboard/inbox` correctly 307-redirects to `/login` when unauthenticated; `/api/health` unaffected.
+- As with prior phases, full conversation/message flows have **not** been exercised against a live database — Supabase/Postgres credentials remain NOT CONFIGURED.
+
+**Known, accepted limitations (documented, not blocking):**
+- No real-time updates (polling/WebSocket/Supabase Realtime) — the inbox refreshes via TanStack Query's normal cache invalidation on mutation, not push. Justified: there's no live inbound channel yet (WhatsApp is Phase 8, the Website Widget is Phase 10) to make real-time meaningful; revisit when one of those lands.
+- `MessageSender.AI` and `ConversationStatus.HUMAN_REQUIRED` being auto-set are both Phase 5 (AI Core) concerns — modeled now, not wired to anything yet.
+
+## PHASE 5 — AI Core ⏳ not started
 
 ## PHASE 5 — AI Core ⏳ not started
 

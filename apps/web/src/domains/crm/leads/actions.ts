@@ -14,7 +14,7 @@ import {
   type DeleteByIdInput,
   type DataActionResult,
 } from "@aif/shared";
-import { requireTenantContext, requireWriteAccess, UnauthorizedError } from "@/domains/auth/guard";
+import { requireTenantContext, UnauthorizedError } from "@/domains/auth/guard";
 import { assertTagsBelongToTenant } from "@/domains/crm/shared";
 
 export type LeadWithTags = Lead & { tags: Tag[] };
@@ -29,22 +29,6 @@ async function assertBelongsToTenant(
     ? tenantDb.customer.findUnique({ where: { id } })
     : tenantDb.user.findUnique({ where: { id } }));
   return Boolean(record);
-}
-
-export type AssignableUser = { id: string; name: string | null; email: string };
-
-export async function listAssignableUsers(): Promise<DataActionResult<AssignableUser[]>> {
-  try {
-    const context = await requireTenantContext();
-    const users = await getTenantDb(context.tenantId).user.findMany({
-      select: { id: true, name: true, email: true },
-      orderBy: { email: "asc" },
-    });
-    return { data: users };
-  } catch (err) {
-    if (err instanceof UnauthorizedError) return { error: err.message };
-    throw err;
-  }
 }
 
 export async function listLeads(): Promise<DataActionResult<LeadWithTags[]>> {
@@ -63,7 +47,7 @@ export async function listLeads(): Promise<DataActionResult<LeadWithTags[]>> {
 
 export async function createLead(input: CreateLeadInput): Promise<DataActionResult<LeadWithTags>> {
   try {
-    const context = await requireWriteAccess();
+    const context = await requireTenantContext();
     const parsed = createLeadSchema.safeParse(input);
     if (!parsed.success) {
       return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -96,7 +80,7 @@ export async function createLead(input: CreateLeadInput): Promise<DataActionResu
 
 export async function updateLead(input: UpdateLeadInput): Promise<DataActionResult<LeadWithTags>> {
   try {
-    const context = await requireWriteAccess();
+    const context = await requireTenantContext();
     const parsed = updateLeadSchema.safeParse(input);
     if (!parsed.success) {
       return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -130,7 +114,7 @@ export async function updateLead(input: UpdateLeadInput): Promise<DataActionResu
 
 export async function updateLeadStage(input: UpdateLeadStageInput): Promise<DataActionResult<LeadWithTags>> {
   try {
-    const context = await requireWriteAccess();
+    const context = await requireTenantContext();
     const parsed = updateLeadStageSchema.safeParse(input);
     if (!parsed.success) {
       return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -152,7 +136,7 @@ export async function updateLeadStage(input: UpdateLeadStageInput): Promise<Data
 
 export async function deleteLead(input: DeleteByIdInput): Promise<DataActionResult<{ id: string }>> {
   try {
-    const context = await requireWriteAccess();
+    const context = await requireTenantContext();
     const parsed = deleteByIdSchema.safeParse(input);
     if (!parsed.success) {
       return { error: parsed.error.issues[0]?.message ?? "Invalid input" };

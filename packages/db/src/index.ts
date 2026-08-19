@@ -13,5 +13,10 @@ export type {
   LeadStage,
   LeadSource,
   Tag,
+  Conversation,
+  ConversationChannel,
+  ConversationStatus,
+  Message,
+  MessageSender,
   Prisma,
 } from "./generated/prisma/client";

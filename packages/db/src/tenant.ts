@@ -18,6 +18,8 @@ const TENANT_SCOPED_MODELS = new Set<string>([
   "Customer",
   "Lead",
   "Tag",
+  "Conversation",
+  "Message",
 ]);
 
 /**

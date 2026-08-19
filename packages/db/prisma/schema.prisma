@@ -33,6 +33,31 @@ enum LeadSource {
   OTHER
 }
 
+enum ConversationChannel {
+  WEBSITE
+  WHATSAPP
+  MANUAL
+}
+
+/// HUMAN_REQUIRED is set when the AI (Phase 5) hands a conversation off to
+/// staff — MASTER_INSTRUCTIONS.md §5's "Human Handoff" requirement. Phase 4
+/// has no AI yet, so it's also settable manually via a "Take over" action.
+enum ConversationStatus {
+  OPEN
+  HUMAN_REQUIRED
+  CLOSED
+}
+
+/// AI is defined now for Phase 5 forward-compatibility but nothing sets it
+/// yet — there is no AI Core in this phase. Only CUSTOMER (staff manually
+/// logging what a customer said) and STAFF (an actual reply) are reachable
+/// through Phase 4's UI.
+enum MessageSender {
+  CUSTOMER
+  AI
+  STAFF
+}
+
 /// Agency is the white-label reseller owner sitting above one or more Tenants.
 /// Inert until Phase 18 (White-Label / Reseller Architecture) but modeled now
 /// so Tenant does not need a breaking schema change later.
@@ -63,13 +88,15 @@ model Tenant {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users        User[]
-  locations    Location[]
-  services     Service[]
-  staffMembers StaffMember[]
-  customers    Customer[]
-  leads        Lead[]
-  tags         Tag[]
+  users         User[]
+  locations     Location[]
+  services      Service[]
+  staffMembers  StaffMember[]
+  customers     Customer[]
+  leads         Lead[]
+  tags          Tag[]
+  conversations Conversation[]
+  messages      Message[]
 
   @@index([agencyId])
   @@map("tenants")
@@ -94,8 +121,10 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  staffMember   StaffMember?
-  assignedLeads Lead[]
+  staffMember           StaffMember?
+  assignedLeads         Lead[]
+  assignedConversations Conversation[]
+  sentMessages          Message[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -214,8 +243,9 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  leads Lead[]
-  tags  Tag[]
+  leads         Lead[]
+  tags          Tag[]
+  conversations Conversation[]
 
   @@index([tenantId])
   @@map("customers")
@@ -244,7 +274,8 @@ model Lead {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  tags Tag[]
+  tags          Tag[]
+  conversations Conversation[]
 
   @@index([tenantId])
   @@index([customerId])
@@ -269,4 +300,58 @@ model Tag {
   @@unique([tenantId, name])
   @@index([tenantId])
   @@map("tags")
+}
+
+/// A conversation thread with a Customer/Lead, over some channel. This is
+/// the Universal Inbox's core entity — one row per thread, not per message.
+/// "Message assignment" (MASTER_INSTRUCTIONS.md Phase 4) is modeled as
+/// assigning the whole Conversation to a dashboard User, matching how
+/// helpdesk inboxes assign a thread to an agent.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model Conversation {
+  id            String              @id @default(cuid())
+  tenantId      String
+  tenant        Tenant              @relation(fields: [tenantId], references: [id])
+  customerId    String?
+  customer      Customer?           @relation(fields: [customerId], references: [id])
+  leadId        String?
+  lead          Lead?               @relation(fields: [leadId], references: [id])
+  assignedToId  String?
+  assignedTo    User?               @relation(fields: [assignedToId], references: [id])
+  channel       ConversationChannel @default(MANUAL)
+  status        ConversationStatus  @default(OPEN)
+  lastMessageAt DateTime            @default(now())
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  messages Message[]
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@index([leadId])
+  @@index([assignedToId])
+  @@map("conversations")
+}
+
+/// A single message within a Conversation. tenantId is denormalized here
+/// (not just reachable via Conversation) for the same reason as
+/// LocationHours — direct queries stay isolated without a join.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model Message {
+  id             String        @id @default(cuid())
+  tenantId       String
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderType     MessageSender
+  senderId       String?
+  sender         User?         @relation(fields: [senderId], references: [id])
+  body           String
+  createdAt      DateTime      @default(now())
+  tenant         Tenant        @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([conversationId])
+  @@map("messages")
 }

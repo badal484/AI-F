@@ -12,7 +12,7 @@ import {
   type DeleteByIdInput,
   type DataActionResult,
 } from "@aif/shared";
-import { requireTenantContext, requireWriteAccess, UnauthorizedError } from "@/domains/auth/guard";
+import { requireTenantContext, UnauthorizedError } from "@/domains/auth/guard";
 import { assertTagsBelongToTenant } from "@/domains/crm/shared";
 
 export type CustomerWithTags = Customer & { tags: Tag[] };
@@ -33,7 +33,7 @@ export async function listCustomers(): Promise<DataActionResult<CustomerWithTags
 
 export async function createCustomer(input: CreateCustomerInput): Promise<DataActionResult<CustomerWithTags>> {
   try {
-    const context = await requireWriteAccess();
+    const context = await requireTenantContext();
     const parsed = createCustomerSchema.safeParse(input);
     if (!parsed.success) {
       return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -60,7 +60,7 @@ export async function createCustomer(input: CreateCustomerInput): Promise<DataAc
 
 export async function updateCustomer(input: UpdateCustomerInput): Promise<DataActionResult<CustomerWithTags>> {
   try {
-    const context = await requireWriteAccess();
+    const context = await requireTenantContext();
     const parsed = updateCustomerSchema.safeParse(input);
     if (!parsed.success) {
       return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -88,7 +88,7 @@ export async function updateCustomer(input: UpdateCustomerInput): Promise<DataAc
 
 export async function deleteCustomer(input: DeleteByIdInput): Promise<DataActionResult<{ id: string }>> {
   try {
-    const context = await requireWriteAccess();
+    const context = await requireTenantContext();
     const parsed = deleteByIdSchema.safeParse(input);
     if (!parsed.success) {
       return { error: parsed.error.issues[0]?.message ?? "Invalid input" };

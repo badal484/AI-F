@@ -10,12 +10,12 @@ import { LEAD_SOURCES, LEAD_STAGES, type CreateLeadInput } from "@aif/shared";
 import {
   createLead,
   deleteLead,
-  listAssignableUsers,
   listLeads,
   updateLead,
   updateLeadStage,
   type LeadWithTags,
 } from "@/domains/crm/leads/actions";
+import { listAssignableUsers } from "@/domains/auth/users";
 import { listCustomers } from "@/domains/crm/customers/actions";
 import { TagPicker } from "@/domains/crm/components/tag-picker";
 import { Button } from "@/components/ui/button";
