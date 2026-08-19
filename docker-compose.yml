@@ -1,0 +1,42 @@
+# Local development infrastructure only — Postgres (with the pgvector
+# extension pre-installed, matching what packages/db/prisma/schema.prisma
+# needs) and Redis. Not used in production: this repo's production target
+# is Supabase Postgres (managed, already has pgvector available) and a
+# managed Redis (e.g. Upstash) — see docs/DEPLOYMENT.md. Unverified — this
+# development environment has no Docker available to actually run
+# `docker compose up`; reviewed carefully but validate before relying on
+# it.
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aif
+      POSTGRES_PASSWORD: aif
+      POSTGRES_DB: aif
+    ports:
+      - "5432:5432"
+    volumes:
+      - aif-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aif -d aif"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - aif-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  aif-postgres-data:
+  aif-redis-data:

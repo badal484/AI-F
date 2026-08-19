@@ -334,7 +334,28 @@ MASTER_INSTRUCTIONS.md names this phase with no further detail — interpreted a
 - No CI-level `npm audit`/dependency-scanning gate — that's Phase 15 (Production Infrastructure & CI/CD) scope.
 - No distinct-origin (X-Forwarded-For-based) component to the rate limiter — it keys on `tenantId`/`visitorId` only, not source IP, since IP headers aren't reliably trustworthy behind an unknown proxy setup without more infra context than this phase has.
 
-## PHASE 15 — Production Infrastructure & CI/CD ⏳ not started
+## PHASE 15 — Production Infrastructure & CI/CD ✅ (2026-08-19)
+
+MASTER_INSTRUCTIONS.md names this phase with no further detail — interpreted as: build the actual deployable artifacts for the "hybrid deployment" split this architecture has assumed since Phase 1 (§4), plus a CI pipeline automating the exact verification loop every phase has been doing by hand. Full detail in the new `docs/DEPLOYMENT.md`.
+
+**Built:**
+- `.github/workflows/ci.yml` — install → generate Prisma client → typecheck → lint → build, on push to `main` and every PR. Zero secrets required (every integration degrades to NOT CONFIGURED cleanly). `.nvmrc` (`24`) added alongside it, matching the Node version this whole build has actually run on.
+- `apps/worker/Dockerfile` + `.dockerignore` (repo root — critically excludes `.env*`/`node_modules`/`.git` from ever entering an image built via this Dockerfile's whole-repo `COPY . .`). Runs `npm run start` (`tsx src/index.ts`, no bundle step, consistent with Phase 8's tsup→tsx correction).
+- `docker-compose.yml` — local Postgres (`pgvector/pgvector:pg17` image, confirmed via Docker Hub rather than assumed — a plain `postgres` image lacks the `vector` extension binary) + Redis, for local development.
+- `docs/DEPLOYMENT.md` — Vercel setup for `apps/web` (Root Directory = `apps/web`, required env vars), worker hosting (any always-on host, not serverless — Dockerfile build command with the repo-root-context gotcha called out), local dev via `docker compose`, and what's deliberately not built (see below).
+- `.env.example` and `README.md` updated with the local-Docker-Postgres alternative and a "Local development" quickstart.
+
+**Verified (2026-08-19):**
+- **The CI workflow's exact command sequence was actually run locally, not just checked for valid YAML** — deleted `packages/db/src/generated/` (simulating a fresh checkout, since it's gitignored and every prior phase's `db:generate` calls had already populated it), then ran `npm ci` → `npm run db:generate` → `npm run typecheck` → `npm run lint` → `npm run build` in that exact order: all clean. This is the closest this environment can get to actually validating the GitHub Actions run without GitHub Actions itself.
+- `ci.yml` and `docker-compose.yml` both parsed as valid YAML.
+- Re-smoke-tested `next dev` after the full clean-reinstall cycle above — `/api/health` and `/login` both still respond correctly.
+- **Not verified, and disclosed as such rather than silently assumed working:** `apps/worker/Dockerfile` and `docker-compose.yml` — this environment has no Docker installed, so neither `docker build` nor `docker compose up` could actually be run. Both were written carefully (the Dockerfile's `COPY . .`-from-repo-root requirement was reasoned through explicitly because of the npm-workspaces dependency graph; the pgvector image tag was confirmed via a real Docker Hub lookup, not guessed) but are genuinely unverified — flag this before relying on either in a real deployment.
+
+**Known, accepted limitations (documented, not blocking):**
+- No CD (deploy) workflow — needs real hosting credentials this environment doesn't have; see `docs/DEPLOYMENT.md` for why building one with placeholder secrets would violate the "no fake implementations" rule, and what the actual path is (Vercel's own GitHub integration, no workflow file needed) once real credentials exist.
+- No health-check endpoint for `apps/worker` (unlike `apps/web`'s `/api/health`) — most container hosts want one for liveness probes; not built, flag if the chosen host requires it.
+- No CI-level dependency/container vulnerability scanning gate — Phase 14 investigated this repo's one standing `npm audit` finding but didn't automate a policy for future ones; no established severity threshold to gate on yet.
+- No layer-cache optimization in the Dockerfile (whole-repo `COPY . .` before `npm ci`, rather than a staged "package.json files first" pattern) — a deliberate simplicity-over-cache-efficiency tradeoff given this couldn't be validated with real Docker either way; revisit once it's actually been built somewhere with Docker available.
 
 ## PHASE 16 — Advanced AI ⏳ not started
 

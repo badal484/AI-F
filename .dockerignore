@@ -1,0 +1,34 @@
+# Mirrors .gitignore's own exclusions, plus a few Docker-specific ones —
+# critically, the .env* exclusion is what keeps any local secrets from
+# ever being copied into an image (Dockerfiles here use `COPY . .`).
+node_modules/
+**/node_modules/
+.pnp
+.pnp.js
+
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+packages/db/src/generated/
+
+.env
+.env.local
+.env.*.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+.DS_Store
+*.pem
+.vercel
+coverage/
+
+.git/
+.github/
+docs/
+*.md

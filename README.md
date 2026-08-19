@@ -20,8 +20,9 @@ Under active development, following the phase-gated workflow defined in [MASTER_
 - PHASE 11 — Analytics & AI Evaluation ✅
 - PHASE 12 — Billing ✅
 - PHASE 13 — Platform Admin Dashboard ✅
-- PHASE 14 — Security Hardening ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
-- PHASE 15 — Production Infrastructure & CI/CD ⏳ next
+- PHASE 14 — Security Hardening ✅
+- PHASE 15 — Production Infrastructure & CI/CD ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
+- PHASE 16 — Advanced AI ⏳ next
 
 ## Stack
 
@@ -32,4 +33,16 @@ Next.js (App Router) · TypeScript · Tailwind · shadcn/ui · Zustand · TanSta
 - [MASTER_INSTRUCTIONS.md](./MASTER_INSTRUCTIONS.md) — architecture rules, phase plan, safeguards
 - [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 - [docs/DATABASE.md](./docs/DATABASE.md)
+- [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) — Vercel/worker hosting, CI, local dev via Docker
 - [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md)
+
+## Local development
+
+```bash
+npm install
+docker compose up -d          # local Postgres (pgvector) + Redis — optional, see docs/DEPLOYMENT.md
+cp .env.example .env          # fill in what you have; everything else degrades to NOT CONFIGURED
+npm run db:generate
+npm run dev:web                # apps/web
+npm run dev:worker             # apps/worker, separate terminal
+```
