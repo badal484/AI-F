@@ -1,4 +1,5 @@
 export { getTenantDb, getPlatformDb, type TenantDb } from "./tenant";
+export { setChunkEmbedding, searchChunks, type ChunkSearchResult } from "./vector";
 export type {
   Role,
   Agency,
@@ -18,5 +19,8 @@ export type {
   ConversationStatus,
   Message,
   MessageSender,
+  KnowledgeDocument,
+  DocumentStatus,
+  DocumentChunk,
   Prisma,
 } from "./generated/prisma/client";

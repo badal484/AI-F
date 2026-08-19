@@ -5,4 +5,5 @@ export * from "./schemas/user";
 export * from "./schemas/business-core";
 export * from "./schemas/crm";
 export * from "./schemas/inbox";
+export * from "./schemas/knowledge";
 export * from "./utils";

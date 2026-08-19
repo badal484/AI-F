@@ -117,7 +117,28 @@ No migrations have been run against a real database. Once Supabase credentials e
 - No streaming (`streamText`) — reply drafting is a single `generateText` call with a loading state, not token-by-token streaming. Justified for now: this is a staff-facing "draft for review" feature, not the customer-facing live chat MASTER_INSTRUCTIONS.md §6 asks to stream — that requirement is more relevant to Phase 10's Website Widget, where a customer is watching in real time.
 - The exact Anthropic model ID (`claude-sonnet-5`) hasn't been verified against a live API call (no credentials configured); it's sourced from this environment's own model-ID reference, not independently confirmed.
 
-## PHASE 6 — RAG & Knowledge ⏳ not started
+## PHASE 6 — RAG & Knowledge ✅ (2026-08-19)
+
+**Built:**
+- Enabled pgvector: `previewFeatures = ["postgresqlExtensions"]` + `extensions = [vector]` in `schema.prisma`. New models `KnowledgeDocument` (`status`: `PENDING | READY | FAILED`, `error`) and `DocumentChunk` (`embedding Unsupported("vector(1536)")?`, since Prisma has no native vector type). Both added to `TENANT_SCOPED_MODELS`.
+- `packages/db/src/vector.ts` — `setChunkEmbedding()`/`searchChunks()`, the only sanctioned access to the `embedding` column (raw SQL, since `Unsupported` fields are invisible to `getTenantDb()`'s extension). Both require `tenantId` as a parameter and bake `tenant_id = ...` into the SQL themselves — that's what isolates this column, documented as a third isolation mechanism alongside `TENANT_SCOPED_MODELS`/`SELF_SCOPED_MODELS` in `docs/DATABASE.md`.
+- `packages/ai/src/rag/`: `chunk.ts` (fixed-size windowing with overlap, no LLM call — runtime-verified directly, not just via the build passing), `embed.ts` (`text-embedding-3-small`, always needs `OPENAI_API_KEY` specifically regardless of the chat provider), `ingest.ts` (chunk → embed → store → set document status, never leaves a document stuck at `PENDING` or fakes success if unconfigured), `search.ts` (`searchKnowledgeBase()`).
+- A fourth AI tool, `searchKnowledgeBase` (`packages/ai/src/tools/search-knowledge-base.ts`), added to `reply.ts`'s tool set — but only when `isEmbeddingConfigured()` is true, so the AI never attempts a capability it doesn't have.
+- UI: `/dashboard/knowledge` — add a document (title + pasted text, embedded synchronously on save since there's no background job queue yet), status/chunk-count list, delete, and a "Test search" panel showing what the AI would retrieve for a given question.
+- `.env.example` updated: `OPENAI_API_KEY` is now documented as required for embeddings regardless of which provider is configured for chat.
+
+**Research before writing schema (given this session's pattern of installed-version API drift):** searched for Prisma 7 + pgvector guidance before touching `schema.prisma`, since Prisma's own docs pages fetched didn't cover it. Found and want to flag: [prisma/prisma#28867](https://github.com/prisma/prisma/issues/28867) reports `prisma migrate dev` producing a false schema-drift error for `Unsupported("vector")` columns specifically on Prisma 7.1.0 (filed 2025-12-05). This repo is on 7.9.1 — possibly fixed since, not confirmed either way, since there's still no live database to run `migrate dev` against. `prisma generate`/`prisma validate` both succeed cleanly on the new schema. Documented the risk and a mitigation (`migrate dev --create-only` + manual SQL review) in `docs/DATABASE.md`'s pgvector section for whoever runs the first real migration.
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 5 workspaces.
+- Runtime-verified (not just build-verified): `chunkText()` produces correctly-overlapping windows for a 2500-character input (1000/1000/800 chars, confirmed the overlap math by hand); empty and whitespace-only input correctly return `[]`. `isEmbeddingConfigured()` returns `false` and `embedText()` throws the expected NOT CONFIGURED message with no `OPENAI_API_KEY` set.
+- Smoke test: `next dev` — `/dashboard/knowledge` redirects correctly when unauthenticated; `/api/health` unaffected; no import/build errors from the new pgvector schema or `packages/ai/src/rag` additions.
+- As with every prior phase, actual ingestion/search against a live database and a real `OPENAI_API_KEY` have **not** been exercised — both remain NOT CONFIGURED in this environment. The Prisma 7.1.0 migration-drift risk above specifically can't be verified without one.
+
+**Known, accepted limitations (documented, not blocking):**
+- Ingestion is synchronous within the `createDocument` Server Action — fine for the document sizes the UI accepts, but will need to move to `apps/worker`'s (still-unbuilt) BullMQ queue once large documents or bulk imports are supported.
+- No file upload (PDF, DOCX, etc.) — paste-only. File upload needs S3-compatible Storage, which isn't wired up yet; add when it is.
+- A brief eventual-consistency window exists between a `DocumentChunk` row being created and its embedding being set (they can't be in the same transaction — one uses `getTenantDb()`, the other raw SQL). `searchChunks()` filters `WHERE embedding IS NOT NULL`, so this never surfaces as incorrect results, just a chunk that isn't searchable for a moment.
 
 ## PHASE 7 — Booking Engine ⏳ not started
 

@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [vector]
 }
 
 enum Role {
@@ -88,15 +90,17 @@ model Tenant {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users         User[]
-  locations     Location[]
-  services      Service[]
-  staffMembers  StaffMember[]
-  customers     Customer[]
-  leads         Lead[]
-  tags          Tag[]
-  conversations Conversation[]
-  messages      Message[]
+  users              User[]
+  locations          Location[]
+  services           Service[]
+  staffMembers       StaffMember[]
+  customers          Customer[]
+  leads              Lead[]
+  tags               Tag[]
+  conversations      Conversation[]
+  messages           Message[]
+  knowledgeDocuments KnowledgeDocument[]
+  documentChunks     DocumentChunk[]
 
   @@index([agencyId])
   @@map("tenants")
@@ -354,4 +358,60 @@ model Message {
   @@index([tenantId])
   @@index([conversationId])
   @@map("messages")
+}
+
+enum DocumentStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+/// A source document for the AI's knowledge base (RAG) — e.g. an FAQ page
+/// or policy pasted in by staff. Split into DocumentChunks for embedding;
+/// `status`/`error` reflect how that background chunk+embed step went.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model KnowledgeDocument {
+  id        String         @id @default(cuid())
+  tenantId  String
+  tenant    Tenant         @relation(fields: [tenantId], references: [id])
+  title     String
+  content   String
+  status    DocumentStatus @default(PENDING)
+  error     String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  chunks DocumentChunk[]
+
+  @@index([tenantId])
+  @@map("knowledge_documents")
+}
+
+/// One embeddable slice of a KnowledgeDocument. `embedding` is a pgvector
+/// column (1536 dims, matching OpenAI's text-embedding-3-small) — Prisma
+/// has no native vector type, so it's declared Unsupported and is
+/// COMPLETELY INVISIBLE to the normal Prisma Client API (getTenantDb()'s
+/// isolation extension only wraps model methods, not raw SQL). Every read
+/// or write of this column goes through packages/db/src/vector.ts's
+/// setChunkEmbedding()/searchChunks() instead, which require tenantId as
+/// a parameter and bake `tenant_id = ...` into the raw SQL themselves —
+/// that requirement, not the extension, is what isolates this column.
+///
+/// TENANT-SCOPED MODEL (for its normal fields) — see User's doc comment
+/// above for those; the embedding column is isolated separately as above.
+model DocumentChunk {
+  id         String                       @id @default(cuid())
+  tenantId   String
+  tenant     Tenant                       @relation(fields: [tenantId], references: [id])
+  documentId String
+  document   KnowledgeDocument            @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunkIndex Int
+  content    String
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime                     @default(now())
+
+  @@index([tenantId])
+  @@index([documentId])
+  @@map("document_chunks")
 }

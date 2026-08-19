@@ -11,8 +11,9 @@ Under active development, following the phase-gated workflow defined in [MASTER_
 - PHASE 2 — Business Core ✅
 - PHASE 3 — CRM ✅
 - PHASE 4 — Universal Inbox ✅
-- PHASE 5 — AI Core ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
-- PHASE 6 — RAG & Knowledge ⏳ next
+- PHASE 5 — AI Core ✅
+- PHASE 6 — RAG & Knowledge ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
+- PHASE 7 — Booking Engine ⏳ next
 
 ## Stack
 

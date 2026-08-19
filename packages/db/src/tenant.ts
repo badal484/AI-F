@@ -20,6 +20,8 @@ const TENANT_SCOPED_MODELS = new Set<string>([
   "Tag",
   "Conversation",
   "Message",
+  "KnowledgeDocument",
+  "DocumentChunk",
 ]);
 
 /**

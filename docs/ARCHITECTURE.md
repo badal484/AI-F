@@ -29,7 +29,8 @@ domains/
   crm/                   customers, leads (+ pipeline stage), tags — actions + UI, per entity; shared.ts for cross-entity FK checks
   inbox/                 conversations (+ assignment/status), messages — actions + a two-pane chat UI
   ai-agent/               actions.ts wiring @aif/ai (intent detection, reply drafting) into the Inbox UI
-  (booking, rag, whatsapp,
+  knowledge/              documents (chunk+embed on create) — actions + UI, including a test-search panel
+  (booking, whatsapp,
    billing, platform-admin, analytics — added as their phases land)
 components/ui/          shadcn/ui primitives only
 lib/                    supabase clients, env helpers, utils
@@ -58,6 +59,17 @@ Supabase Auth (session cookies via `@supabase/ssr`). `apps/web/src/proxy.ts` ref
 - **Tools deliberately NOT built yet:** `checkAvailability` / `bookAppointment`, MASTER_INSTRUCTIONS.md §5's own example tools, require the `Appointment` model that doesn't exist until Phase 7 (Booking Engine) — building them now would mean either faking booking logic (forbidden by §7) or building Phase 7's schema out of the strict phase order (forbidden by §9). The system prompt in `src/reply.ts` explicitly tells the AI booking isn't available yet and to escalate instead. See `docs/BUILD_PROGRESS.md`'s Phase 5 entry.
 - **Intent detection** (`src/intent.ts`) — a `generateObject` call classifying a single message into `FAQ | BOOKING_REQUEST | LEAD_INTEREST | COMPLAINT | OTHER` plus a frustration flag, wired to a manual "Detect intent" button in the Inbox (not automatic-on-load, so an unconfigured AI doesn't produce an error toast just from opening a conversation).
 - **Reply drafting** (`src/reply.ts`) — a tool-calling `generateText` loop (`stopWhen: stepCountIs(5)`) that drafts a suggested reply into the compose box for a staff member to review and edit before sending — it never sends automatically and never creates a `Message` row itself. The system prompt is explicit about prompt-injection defense (MASTER_INSTRUCTIONS.md §5): conversation history is treated as untrusted data, not instructions.
+
+## RAG & Knowledge (Phase 6)
+
+`packages/ai/src/rag/` — chunking, embedding, ingestion, and search, feeding a fourth tool (`searchKnowledgeBase`) into `reply.ts`'s tool set:
+
+- **Chunking** (`chunk.ts`) — plain fixed-size character windowing with overlap, no LLM call.
+- **Embeddings** (`embed.ts`) — always `OPENAI_API_KEY` + `text-embedding-3-small` (1536 dims), independent of whichever provider `getModel()` resolves for chat — Anthropic has no public embeddings API. Same `isEmbeddingConfigured()` / throw-with-clear-message pattern as `provider.ts`.
+- **Storage** — `DocumentChunk.embedding` is a pgvector column, which Prisma can't represent as a normal field; see `docs/DATABASE.md`'s pgvector section for how it's isolated (a third, raw-SQL-based mechanism alongside `TENANT_SCOPED_MODELS` and `SELF_SCOPED_MODELS`).
+- **Ingestion** (`ingest.ts`) — chunk → embed → store → set `KnowledgeDocument.status` to `READY` or `FAILED` (with a reason) — never left stuck at `PENDING`, never faked as successful if embeddings are unconfigured. Runs synchronously inside the `createDocument` Server Action; there's no background job queue wired up yet to move this off the request (that's Phase 8/9's worker infrastructure).
+- **`searchKnowledgeBase` tool** — only added to `reply.ts`'s tool set when `isEmbeddingConfigured()` is true, so the AI never attempts a capability it doesn't have (same "don't offer what isn't configured" logic as Phase 4 not offering "AI" as a message sender).
+- **UI** (`apps/web/src/domains/knowledge/`) — `/dashboard/knowledge`: add a document (title + pasted text, embedded synchronously on save), see its status/chunk count, and a "Test search" panel to see what the AI would retrieve for a given question, independent of an actual conversation.
 
 ## Documented deviations from MASTER_INSTRUCTIONS.md §3
 
