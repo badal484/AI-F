@@ -10,6 +10,7 @@
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@aif/ai": "^0.1.0",
     "@aif/db": "^0.1.0",
     "@aif/shared": "^0.1.0",
     "@base-ui/react": "^1.7.0",

@@ -11,6 +11,7 @@ import {
   type ConversationSummary,
 } from "@/domains/inbox/conversations/actions";
 import { listMessages, sendMessage, type MessageWithSender } from "@/domains/inbox/messages/actions";
+import { detectConversationIntent, generateDraftReply } from "@/domains/ai-agent/actions";
 import { listAssignableUsers } from "@/domains/auth/users";
 import { CONVERSATIONS_KEY } from "@/domains/inbox/components/conversation-list";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,34 @@ export function ConversationThread({ conversationId }: { conversationId: string 
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [senderType, setSenderType] = useState<(typeof MESSAGE_SENDER_INPUTS)[number]>("STAFF");
+  const [intentFor, setIntentFor] = useState<string | null>(null);
+
+  const intentMutation = useMutation({
+    mutationFn: detectConversationIntent,
+    onError: () => toast.error("Something went wrong"),
+  });
+  const draftMutation = useMutation({
+    mutationFn: generateDraftReply,
+    onSuccess: (result) => {
+      if ("error" in result) {
+        toast.error(result.error);
+        return;
+      }
+      setDraft(result.data.text);
+      setSenderType("STAFF");
+      if (result.data.escalated) toast.info("AI escalated this conversation to a human");
+      if (result.data.leadCaptured) toast.info("AI captured a new lead from this conversation");
+    },
+    onError: () => toast.error("Something went wrong"),
+  });
+
+  // Discard a previous conversation's intent result when switching threads —
+  // an "adjust state during render" reset (not an effect), see the same
+  // pattern in location-hours-editor.tsx.
+  if (intentFor !== conversationId && (intentMutation.data || intentMutation.isPending)) {
+    setIntentFor(conversationId);
+    intentMutation.reset();
+  }
 
   const { data: conversations } = useQuery({
     queryKey: CONVERSATIONS_KEY,
@@ -190,6 +219,42 @@ export function ConversationThread({ conversationId }: { conversationId: string 
             </span>
           </div>
         ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 border-t bg-muted/30 px-3 py-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={intentMutation.isPending || !messages?.some((m) => m.senderType === "CUSTOMER")}
+          onClick={() => {
+            const lastCustomerMessage = [...(messages ?? [])].reverse().find((m) => m.senderType === "CUSTOMER");
+            if (lastCustomerMessage) intentMutation.mutate(lastCustomerMessage.body);
+          }}
+        >
+          {intentMutation.isPending ? "Detecting…" : "Detect intent"}
+        </Button>
+        {intentMutation.data &&
+          (("error" in intentMutation.data) ? (
+            <span className="text-xs text-destructive">{intentMutation.data.error}</span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Badge variant={intentMutation.data.data.isFrustrated ? "destructive" : "outline"}>
+                {intentMutation.data.data.intent}
+              </Badge>
+              {intentMutation.data.data.reasoning}
+            </span>
+          ))}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          disabled={draftMutation.isPending || !messages?.length}
+          onClick={() => draftMutation.mutate(conversationId)}
+        >
+          {draftMutation.isPending ? "Drafting…" : "Draft AI reply"}
+        </Button>
       </div>
 
       <form

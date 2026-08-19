@@ -93,9 +93,29 @@ No migrations have been run against a real database. Once Supabase credentials e
 - No real-time updates (polling/WebSocket/Supabase Realtime) — the inbox refreshes via TanStack Query's normal cache invalidation on mutation, not push. Justified: there's no live inbound channel yet (WhatsApp is Phase 8, the Website Widget is Phase 10) to make real-time meaningful; revisit when one of those lands.
 - `MessageSender.AI` and `ConversationStatus.HUMAN_REQUIRED` being auto-set are both Phase 5 (AI Core) concerns — modeled now, not wired to anything yet.
 
-## PHASE 5 — AI Core ⏳ not started
+## PHASE 5 — AI Core ✅ (2026-08-19)
 
-## PHASE 5 — AI Core ⏳ not started
+**Engineering judgment call (documented per MASTER_INSTRUCTIONS.md §9):** MASTER_INSTRUCTIONS.md §5 names `checkAvailability`/`bookAppointment` as example tools, but both need the `Appointment` model, which doesn't exist until Phase 7 (Booking Engine) — MASTER_INSTRUCTIONS.md §9 requires executing phases "strictly in this order," so building Phase 7's schema now to support them isn't an option, and faking booking logic without real data is explicitly forbidden by §7. Built the three tools that ARE supportable against the current schema (`getBusinessInfo`, `captureLead`, `escalateToHuman`) and had the system prompt explicitly tell the AI booking isn't available yet, escalating instead. Revisit once Phase 7 lands — `checkAvailability`/`bookAppointment` belong there.
+
+**Built:**
+- New package `packages/ai` (`ai`, `@ai-sdk/anthropic`, `@ai-sdk/openai`) — verified the actual installed API surface (`tool()`'s `inputSchema` field, `generateObject`'s `schema`, `generateText`'s `stopWhen: stepCountIs(n)` for multi-step tool loops) directly against the installed package's type definitions before writing any code, given this session's pattern of installed-version API drift from typical assumptions.
+- `src/provider.ts` — `isAiConfigured()`/`missingAiEnvVars()`/`getModel()` abstraction; Anthropic default (`claude-sonnet-5`, overridable via `AI_MODEL`), OpenAI fallback requiring `AI_MODEL` explicitly rather than guessing a default model name for a provider this build doesn't have a confirmed current model ID for.
+- Tools (`src/tools/`): `getBusinessInfo` (read-only, Services/Locations/Hours), `captureLead` (real CRM write, `$transaction`-wrapped with linking the Conversation), `escalateToHuman` (sets `ConversationStatus.HUMAN_REQUIRED` — MASTER_INSTRUCTIONS.md §5's Human Handoff, AI-triggered counterpart to Phase 4's manual status control). Each is a factory closing over `tenantId`/`conversationId` so the AI can only ever act within the current tenant via the same `getTenantDb()` isolation as everything else.
+- `src/intent.ts` — `generateObject`-based classification into `FAQ | BOOKING_REQUEST | LEAD_INTEREST | COMPLAINT | OTHER` + a frustration flag.
+- `src/reply.ts` — tool-calling `generateText` draft-reply loop with a system prompt covering: only state facts from `getBusinessInfo`, never claim a booking succeeded, escalate on frustration/unanswerable questions, capture leads on clear interest, and explicit prompt-injection defense (treat conversation history as untrusted data, not instructions) per MASTER_INSTRUCTIONS.md §5.
+- Wired into `/dashboard/inbox`: a manual "Detect intent" button (shows intent + frustration badge for the last customer message) and "Draft AI reply" button (fills the compose box for staff to review/edit — never auto-sends, never creates a `Message` row itself) on `ConversationThread`. Both are manual, not automatic-on-load, so an unconfigured AI doesn't produce error toasts just from opening a conversation.
+- `.env.example` documents `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `AI_MODEL`.
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 5 workspaces (now including `@aif/ai`).
+- Runtime-verified the NOT CONFIGURED path directly (not just via the build passing): with no API key set, `isAiConfigured()` returns `false`, `getModel()` throws the expected message, confirming `detectConversationIntent`/`generateDraftReply` will return `{ error }` without ever reaching the SDK, per MASTER_INSTRUCTIONS.md §7.
+- Smoke test: `next dev` — `/dashboard/inbox` still redirects correctly when unauthenticated; `/api/health` unaffected; no import/build errors from the new package.
+- As with prior phases, the actual AI calls (intent detection, reply drafting, tool execution against real tenant data) have **not** been exercised against a live database or a real Anthropic/OpenAI key — both are NOT CONFIGURED in this environment.
+
+**Known, accepted limitations (documented, not blocking):**
+- `checkAvailability`/`bookAppointment` tools deferred to Phase 7 — see the judgment call above.
+- No streaming (`streamText`) — reply drafting is a single `generateText` call with a loading state, not token-by-token streaming. Justified for now: this is a staff-facing "draft for review" feature, not the customer-facing live chat MASTER_INSTRUCTIONS.md §6 asks to stream — that requirement is more relevant to Phase 10's Website Widget, where a customer is watching in real time.
+- The exact Anthropic model ID (`claude-sonnet-5`) hasn't been verified against a live API call (no credentials configured); it's sourced from this environment's own model-ID reference, not independently confirmed.
 
 ## PHASE 6 — RAG & Knowledge ⏳ not started
 

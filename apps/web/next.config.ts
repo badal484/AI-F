@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@aif/db", "@aif/shared"],
+  transpilePackages: ["@aif/db", "@aif/shared", "@aif/ai"],
 };
 
 export default nextConfig;

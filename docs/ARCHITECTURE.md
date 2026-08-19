@@ -13,10 +13,11 @@ apps/
 packages/
   db/       Prisma schema, generated client, tenant-isolation extension
   shared/   Zod schemas, shared types, logger — used by both apps
+  ai/       Vercel AI SDK provider abstraction, tool definitions, intent detection, reply drafting
   config/   Shared tsconfig/eslint base configs
 ```
 
-`apps/web` and `apps/worker` are independently deployable: the UI runs serverless, the worker runs as a persistent process holding Redis/BullMQ connections. Both import `@aif/db` and `@aif/shared` as workspace packages so schema, types, and validation never drift between them.
+`apps/web` and `apps/worker` are independently deployable: the UI runs serverless, the worker runs as a persistent process holding Redis/BullMQ connections. Both import `@aif/db`, `@aif/shared`, and `@aif/ai` as workspace packages so schema, types, validation, and AI logic never drift between them — `@aif/ai` lives in its own package (not inside `apps/web`) specifically so `apps/worker` can call the same tools/prompts once Phase 8 (WhatsApp) needs them, without duplicating anything.
 
 Within `apps/web/src`, code is organized by domain rather than by route:
 
@@ -27,7 +28,8 @@ domains/
   business-core/         tenant profile, locations (+hours), services, staff — actions + UI, per entity
   crm/                   customers, leads (+ pipeline stage), tags — actions + UI, per entity; shared.ts for cross-entity FK checks
   inbox/                 conversations (+ assignment/status), messages — actions + a two-pane chat UI
-  (ai-agent, booking, rag, whatsapp,
+  ai-agent/               actions.ts wiring @aif/ai (intent detection, reply drafting) into the Inbox UI
+  (booking, rag, whatsapp,
    billing, platform-admin, analytics — added as their phases land)
 components/ui/          shadcn/ui primitives only
 lib/                    supabase clients, env helpers, utils
@@ -46,6 +48,16 @@ See `MASTER_INSTRUCTIONS.md` §4 for the governing rule and `docs/DATABASE.md` �
 ## Auth
 
 Supabase Auth (session cookies via `@supabase/ssr`). `apps/web/src/proxy.ts` refreshes the session on every request and redirects unauthenticated users away from `/dashboard`. `apps/web/src/domains/auth/session.ts` resolves the full `TenantContext` (tenant + role) server-side from the session — this is the only place that reads through `getPlatformDb()` outside the future Platform Admin phase, because tenant identity isn't known yet at that point.
+
+## AI Core
+
+`packages/ai` is the Vercel AI SDK integration (MASTER_INSTRUCTIONS.md §5), with the same "NOT CONFIGURED, not faked" discipline as every other integration:
+
+- **Provider abstraction** (`src/provider.ts`) — `isAiConfigured()` / `missingAiEnvVars()` follow the same pattern as `apps/web/src/lib/env.ts`'s Supabase/DB checks. `getModel()` prefers Anthropic (`ANTHROPIC_API_KEY`, default model `claude-sonnet-5`, overridable via `AI_MODEL`) and falls back to OpenAI (`OPENAI_API_KEY`) if only that's set — `AI_MODEL` becomes *required* in that case rather than guessing an OpenAI model name. Every caller (`detectIntent`, `draftReply`) checks `isAiConfigured()` and throws a clear message rather than letting a missing key surface as an opaque provider error; the Server Actions that call them (`apps/web/src/domains/ai-agent/actions.ts`) check it again and return `{ error }` instead of ever calling into the SDK unconfigured.
+- **Tools** (`src/tools/`) — each is a factory function closing over `tenantId` (and `conversationId` where relevant) so the AI can only ever act within the current tenant/conversation, using the exact same `getTenantDb()` isolation as every other domain — there is no separate "AI database access path." `getBusinessInfo` is read-only (Services/Locations/LocationHours); `captureLead` and `escalateToHuman` are real writes through the Phase 3/4 CRM and Conversation models, wrapped in `$transaction` where they touch more than one table, per MASTER_INSTRUCTIONS.md §4.
+- **Tools deliberately NOT built yet:** `checkAvailability` / `bookAppointment`, MASTER_INSTRUCTIONS.md §5's own example tools, require the `Appointment` model that doesn't exist until Phase 7 (Booking Engine) — building them now would mean either faking booking logic (forbidden by §7) or building Phase 7's schema out of the strict phase order (forbidden by §9). The system prompt in `src/reply.ts` explicitly tells the AI booking isn't available yet and to escalate instead. See `docs/BUILD_PROGRESS.md`'s Phase 5 entry.
+- **Intent detection** (`src/intent.ts`) — a `generateObject` call classifying a single message into `FAQ | BOOKING_REQUEST | LEAD_INTEREST | COMPLAINT | OTHER` plus a frustration flag, wired to a manual "Detect intent" button in the Inbox (not automatic-on-load, so an unconfigured AI doesn't produce an error toast just from opening a conversation).
+- **Reply drafting** (`src/reply.ts`) — a tool-calling `generateText` loop (`stopWhen: stepCountIs(5)`) that drafts a suggested reply into the compose box for a staff member to review and edit before sending — it never sends automatically and never creates a `Message` row itself. The system prompt is explicit about prompt-injection defense (MASTER_INSTRUCTIONS.md §5): conversation history is treated as untrusted data, not instructions.
 
 ## Documented deviations from MASTER_INSTRUCTIONS.md §3
 
