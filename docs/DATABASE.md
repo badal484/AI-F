@@ -2,7 +2,7 @@
 
 PostgreSQL via Supabase. Prisma ORM (v7, driver-adapter mode — see `docs/ARCHITECTURE.md` for why). Schema source of truth: `packages/db/prisma/schema.prisma`.
 
-## Current schema (through Phase 10 — Website Widget)
+## Current schema (through Phase 11 — Analytics & AI Evaluation)
 
 ```
 Agency (1) ──< (N) Tenant (1) ──< (N) User ──< (N) Lead (assignedTo)
@@ -23,8 +23,10 @@ Agency (1) ──< (N) Tenant (1) ──< (N) User ──< (N) Lead (assignedTo)
                         ├──< (N) WhatsAppTemplate (1) ──< (N) AutomationRule
                         ├──< (N) AutomationRule (1) ──< (N) AutomationRun
                         ├──< (N) AutomationRun
-                        └──< (N) Reminder
+                        ├──< (N) Reminder
+                        └──< (N) AiInteractionLog
 ```
+`Conversation (1) ──< (N) AiInteractionLog` too — every row is scoped by both `tenantId` and `conversationId`.
 
 - **Agency** — a white-label reseller owner sitting above one or more Tenants. Inert until Phase 18; modeled now so `Tenant` doesn't need a breaking schema change later.
 - **Tenant** — one deployed business (a clinic, salon, real estate office, etc.). The unit of isolation for every tenant-scoped model. Carries its own profile fields (`timezone`, `phone`, `website`, `description`, `whatsappPhoneNumberId`, `widgetEnabled`, `widgetAllowedOrigins`) editable at `/dashboard/settings`. `whatsappPhoneNumberId` (globally `@unique`) is Meta's own phone_number_id for this tenant's WhatsApp number — one platform-level Meta access token can send on behalf of any number registered to it, so this is what an inbound webhook (which carries a phone_number_id but no tenant info) gets mapped back to a tenant by. `widgetEnabled`/`widgetAllowedOrigins` (Phase 10) gate the embeddable website widget — see the isolation section below and `docs/ARCHITECTURE.md`'s "Website Widget" section.
@@ -48,6 +50,7 @@ Agency (1) ──< (N) Tenant (1) ──< (N) User ──< (N) Lead (assignedTo)
 - **AutomationRule** — a tenant-configured "when X happens, after N minutes, do Y" rule (Phase 9). `trigger` (`APPOINTMENT_CREATED | LEAD_CREATED | LEAD_STAGE_CHANGED`), `triggerStage` (only for `LEAD_STAGE_CHANGED`), `delayMinutes` (meaning depends on trigger — see `docs/ARCHITECTURE.md`'s Automations section), `actionType` (`SEND_WHATSAPP_TEMPLATE | CREATE_REMINDER`) with its own config (`whatsappTemplateId` or `reminderTitle`), `isEnabled`.
 - **AutomationRun** — one scheduled/completed firing of an `AutomationRule` against one entity (an Appointment or Lead id, in `entityId` — not a Prisma relation, since it can point at either model). `status` (`PENDING | SENT | SKIPPED | CANCELLED | FAILED`) plus `@@unique([ruleId, entityId])` is both the idempotency guard and the cancellation mechanism — see "Automation run idempotency" below.
 - **Reminder** — a staff-facing to-do, created by an `AutomationRule`'s `CREATE_REMINDER` action. `dueAt`, `isCompleted`, optionally linked to a `Lead` and/or `Customer`.
+- **AiInteractionLog** — one row per `draftReply()` call (Phase 11), written by `draftReply()` itself so every caller (Inbox, WhatsApp, website widget) is captured without each needing its own logging code. `bookingAttempted` vs `booked` distinguishes "never tried to book" from "tried and failed" — collapsing those would make a booking success/failure rate meaningless. `error` is set (and the other outcome fields left at their defaults) when the underlying AI call itself threw; `draftReply()` still re-throws to its caller regardless — this row is purely an observability side effect, not part of the request's control flow. Powers `/dashboard/analytics`'s AI evaluation numbers.
 
 Later phases add further tenant-scoped models under this same Tenant (Subscription, etc.) per the sketch in `docs/INITIAL_AUDIT.md` §3.2.
 
@@ -55,7 +58,7 @@ Later phases add further tenant-scoped models under this same Tenant (Subscripti
 
 Enforced at the ORM layer via a Prisma Client Extension (`packages/db/src/tenant.ts`), not by convention:
 
-- `TENANT_SCOPED_MODELS` is the single source of truth for which models carry a `tenantId` column (`User`, `Location`, `LocationHours`, `Service`, `StaffMember`, `Customer`, `Lead`, `Tag`, `Conversation`, `Message`, `KnowledgeDocument`, `DocumentChunk`, `Appointment`, `WhatsAppTemplate`, `AutomationRule`, `AutomationRun`, `Reminder`). **Every new tenant-scoped model added to `schema.prisma` must be added to this set**, or the extension silently won't protect it.
+- `TENANT_SCOPED_MODELS` is the single source of truth for which models carry a `tenantId` column (`User`, `Location`, `LocationHours`, `Service`, `StaffMember`, `Customer`, `Lead`, `Tag`, `Conversation`, `Message`, `KnowledgeDocument`, `DocumentChunk`, `Appointment`, `WhatsAppTemplate`, `AutomationRule`, `AutomationRun`, `Reminder`, `AiInteractionLog`). **Every new tenant-scoped model added to `schema.prisma` must be added to this set**, or the extension silently won't protect it. This includes `groupBy`/`aggregate` operations (Phase 11's `getAnalyticsSummary()` uses both) — the extension's `Operation` union already covered them since Phase 3, but it's easy to assume aggregate queries are somehow exempt from tenant scoping; they aren't, and must never be run through anything but `getTenantDb()`.
 - `getTenantDb(tenantId)` returns a Prisma client with `tenantId` auto-injected into `where` (reads/updates/deletes) and `data` (creates) for every operation against a scoped model. The caller cannot omit or override it. Call sites also pass `tenantId` explicitly in `create`/`upsert` `data` (TypeScript can't see the runtime injection, so the field is still required at compile time) — the extension's injection is what actually enforces it, the explicit value is defense-in-depth.
 - `SELF_SCOPED_MODELS` handles the one model whose own `id` *is* the tenant boundary rather than a separate `tenantId` column: `Tenant` itself. Through `getTenantDb()`, reads/updates against `Tenant` are restricted to `where: { id: tenantId }` — used by the Settings page to read/update the current tenant's own profile without reaching for `getPlatformDb()`. `create`/`delete`/etc. on `Tenant` are deliberately unsupported through this path (tenant creation happens during sign-up, before a `tenantId` exists — see `getPlatformDb()` below).
 - Application code (`apps/web`, `apps/worker`) must never import `PrismaClient` directly — only `getTenantDb(tenantId)` or `getPlatformDb()`, both exported from `@aif/db`.

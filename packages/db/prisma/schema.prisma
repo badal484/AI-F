@@ -122,6 +122,7 @@ model Tenant {
   automationRules    AutomationRule[]
   automationRuns     AutomationRun[]
   reminders          Reminder[]
+  aiInteractionLogs  AiInteractionLog[]
 
   @@index([agencyId])
   @@map("tenants")
@@ -364,8 +365,9 @@ model Conversation {
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
-  messages     Message[]
-  appointments Appointment[]
+  messages          Message[]
+  appointments      Appointment[]
+  aiInteractionLogs AiInteractionLog[]
 
   @@index([tenantId])
   @@index([customerId])
@@ -647,4 +649,39 @@ model Reminder {
   @@index([tenantId])
   @@index([tenantId, isCompleted, dueAt])
   @@map("reminders")
+}
+
+/// One record of `draftReply()` (`packages/ai`) actually being invoked —
+/// written by `draftReply()` itself, not by its callers, so every call
+/// site (the Inbox's manual "Draft AI reply" button, the WhatsApp inbound
+/// worker, the website widget) is captured for free without needing to
+/// remember to log at each one (Phase 11's "Usage tracking, failure
+/// rates" — see docs/ARCHITECTURE.md's "Analytics & AI Evaluation"
+/// section). `bookingAttempted` is distinct from `booked` specifically so
+/// a genuine booking failure (attempted, not booked) can be told apart
+/// from "no booking was ever attempted" (both would otherwise look like
+/// booked = false). `error` is set (and every other outcome field left at
+/// its default) when the underlying AI call itself threw — draftReply()
+/// still re-throws to its caller either way; this row is purely an
+/// observability side effect, per its own doc comment.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model AiInteractionLog {
+  id               String       @id @default(cuid())
+  tenantId         String
+  tenant           Tenant       @relation(fields: [tenantId], references: [id])
+  conversationId   String
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  escalated        Boolean      @default(false)
+  leadCaptured     Boolean      @default(false)
+  bookingAttempted Boolean      @default(false)
+  booked           Boolean      @default(false)
+  toolCallCount    Int          @default(0)
+  durationMs       Int
+  error            String?
+  createdAt        DateTime     @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@map("ai_interaction_logs")
 }

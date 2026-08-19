@@ -1,4 +1,6 @@
 import { generateText, stepCountIs, type ModelMessage, type ToolSet } from "ai";
+import { getTenantDb } from "@aif/db";
+import { createLogger } from "@aif/shared";
 import { getModel, isAiConfigured } from "./provider";
 import { createGetBusinessInfoTool } from "./tools/business-info";
 import { createCaptureLeadTool } from "./tools/capture-lead";
@@ -7,6 +9,8 @@ import { createSearchKnowledgeBaseTool } from "./tools/search-knowledge-base";
 import { createCheckAvailabilityTool } from "./tools/check-availability";
 import { createBookAppointmentTool } from "./tools/book-appointment";
 import { isEmbeddingConfigured } from "./rag/embed";
+
+const logger = createLogger("ai:reply");
 
 export interface DraftReplyMessage {
   role: "user" | "assistant";
@@ -17,6 +21,9 @@ export interface DraftReplyResult {
   text: string;
   escalated: boolean;
   leadCaptured: boolean;
+  /** True whenever the bookAppointment tool was called at all, regardless of outcome — see `booked`. */
+  bookingAttempted: boolean;
+  /** True only if bookAppointment was called AND actually succeeded. False covers both "not attempted" and "attempted but failed" — check bookingAttempted to tell those apart. */
   booked: boolean;
 }
 
@@ -63,13 +70,35 @@ export async function draftReply(params: {
     tools.searchKnowledgeBase = createSearchKnowledgeBaseTool(params.tenantId);
   }
 
-  const result = await generateText({
-    model: getModel(),
-    system: systemPrompt(),
-    messages,
-    tools,
-    stopWhen: stepCountIs(8),
-  });
+  const startedAt = Date.now();
+  const db = getTenantDb(params.tenantId);
+
+  let result: Awaited<ReturnType<typeof generateText>>;
+  try {
+    result = await generateText({
+      model: getModel(),
+      system: systemPrompt(),
+      messages,
+      tools,
+      stopWhen: stepCountIs(8),
+    });
+  } catch (err) {
+    // Logged as a real AI interaction attempt (Phase 11's "failure rates")
+    // before re-throwing — draftReply()'s contract of throwing on failure
+    // is unchanged, this is purely an additional observability side
+    // effect. Never let a failure to WRITE the log mask the real error.
+    await db.aiInteractionLog
+      .create({
+        data: {
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          durationMs: Date.now() - startedAt,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      })
+      .catch((logErr: unknown) => logger.error({ logErr }, "Failed to record AiInteractionLog for a failed draftReply call"));
+    throw err;
+  }
 
   // bookAppointment can soft-fail (return { booked: false, reason }) without
   // throwing, so — unlike escalateToHuman/captureLead, which only ever
@@ -77,17 +106,30 @@ export async function draftReply(params: {
   // enough here. Read the actual result to avoid reporting a booking that
   // didn't happen (MASTER_INSTRUCTIONS.md §7, "never fake actions").
   const bookingResult = result.toolResults.find((r) => r.toolName === "bookAppointment");
+  const bookingAttempted = Boolean(bookingResult);
   const booked =
-    Boolean(bookingResult) &&
+    bookingAttempted &&
     typeof bookingResult?.output === "object" &&
     bookingResult.output !== null &&
     "booked" in bookingResult.output &&
     bookingResult.output.booked === true;
+  const escalated = result.toolCalls.some((call) => call.toolName === "escalateToHuman");
+  const leadCaptured = result.toolCalls.some((call) => call.toolName === "captureLead");
 
-  return {
-    text: result.text,
-    escalated: result.toolCalls.some((call) => call.toolName === "escalateToHuman"),
-    leadCaptured: result.toolCalls.some((call) => call.toolName === "captureLead"),
-    booked,
-  };
+  await db.aiInteractionLog
+    .create({
+      data: {
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        escalated,
+        leadCaptured,
+        bookingAttempted,
+        booked,
+        toolCallCount: result.toolCalls.length,
+        durationMs: Date.now() - startedAt,
+      },
+    })
+    .catch((logErr: unknown) => logger.error({ logErr }, "Failed to record AiInteractionLog for a successful draftReply call"));
+
+  return { text: result.text, escalated, leadCaptured, bookingAttempted, booked };
 }

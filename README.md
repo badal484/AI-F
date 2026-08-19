@@ -16,8 +16,9 @@ Under active development, following the phase-gated workflow defined in [MASTER_
 - PHASE 7 — Booking Engine ✅
 - PHASE 8 — WhatsApp Integration ✅
 - PHASE 9 — Automations ✅
-- PHASE 10 — Website Widget ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
-- PHASE 11 — Analytics & AI Evaluation ⏳ next
+- PHASE 10 — Website Widget ✅
+- PHASE 11 — Analytics & AI Evaluation ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
+- PHASE 12 — Billing ⏳ next
 
 ## Stack
 

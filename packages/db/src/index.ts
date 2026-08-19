@@ -34,4 +34,5 @@ export type {
   AutomationRun,
   AutomationRunStatus,
   Reminder,
+  AiInteractionLog,
 } from "./generated/prisma/client";

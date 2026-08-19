@@ -243,7 +243,27 @@ MASTER_INSTRUCTIONS.md names this phase as "Embeddable chat, origin validation" 
 - Widget UI is English-only, left-to-right — no i18n/RTL support.
 - Same E.164-style identity-matching gap already documented for WhatsApp doesn't apply here (website visitors have no phone number), but the analogous gap exists for `captureLead`-created Leads from the widget: no fuzzy matching against an existing Customer by name/email.
 
-## PHASE 11 — Analytics & AI Evaluation ⏳ not started
+## PHASE 11 — Analytics & AI Evaluation ✅ (2026-08-19)
+
+MASTER_INSTRUCTIONS.md names this phase "Usage tracking, failure rates" — built entirely on data the app already produces as a byproduct of real work, not a new tracking pipeline.
+
+**Built:**
+- Schema: `AiInteractionLog` — one row per `draftReply()` call (`escalated`, `leadCaptured`, `bookingAttempted`, `booked`, `toolCallCount`, `durationMs`, `error`).
+- `packages/ai/src/reply.ts`: `draftReply()` now writes its own `AiInteractionLog` row (success or failure) after every call — written by `draftReply()` itself, not its callers, so the Inbox's manual draft button (Phase 5), the WhatsApp inbound worker (Phase 8), and the website widget (Phase 10) are all captured automatically without any of those three files changing. Added `bookingAttempted` to `DraftReplyResult`, distinct from `booked`, specifically so "never attempted a booking" and "attempted and failed" don't collapse into the same `false` — needed for a booking *success rate* (a fraction of attempts) to mean anything. On a thrown error from `generateText()`, still logs (with `error` set) and re-throws unchanged — draftReply()'s existing contract for its three callers is untouched, this is purely additive.
+- `apps/web/src/domains/analytics/actions.ts`'s `getAnalyticsSummary()` — one aggregate read: Conversations grouped by channel, Leads by pipeline stage, Appointments by status (Prisma `groupBy`, still tenant-scoped through `getTenantDb()`), plus AI evaluation numbers computed from `AiInteractionLog`. `zeroFillCounts()` merges against `@aif/shared`'s existing `LEAD_STAGES`/`CONVERSATION_CHANNELS`/`APPOINTMENT_STATUSES` constants so a stage/channel/status with zero rows still renders as a zero bar.
+- UI: `/dashboard/analytics` — stat cards (total AI replies, escalation rate, lead-capture rate, booking success rate among attempts, failure rate, avg. response time) and three CSS-bar breakdowns (no charting library added — not worth a new dependency for one dashboard). Read-only, day-to-day tier (`requireTenantContext`).
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 10 workspaces on the first pass (no new gotchas hit this phase).
+- The zero-fill merge and percent-formatting math (missing-key defaulting to 0, division-by-zero → `"—"`, rounding) were checked against 5 hand-picked cases before trusting them.
+- Smoke test: `next dev` — `/dashboard/analytics` correctly 307-redirects when unauthenticated, matching every other protected route; `/api/health` unaffected.
+- **Not verified:** the actual `groupBy`/`AiInteractionLog` queries against real data — `DATABASE_URL` is NOT CONFIGURED in this environment, so the dashboard has only ever rendered its `isLoading` state, never real numbers or the "no AI replies yet" empty state's actual query path.
+
+**Known, accepted limitations (documented, not blocking):**
+- No time-series/trend view — every relevant row already has `createdAt`, so this is addable later without a schema change, just not built now (today's dashboard is all-time totals only).
+- No per-conversation or per-staff-member breakdown.
+- No cost/token tracking — the AI SDK's `usage` field (tokens in/out) wasn't captured alongside the rest of `AiInteractionLog`; deferred since no billing feature depends on it yet (Phase 12).
+- "AI is NOT CONFIGURED" is deliberately *not* logged to `AiInteractionLog` — every caller already logs that separately via `logNotConfigured()` before ever reaching `draftReply()`, and folding it in would conflate a deployment/config gap with an actual runtime failure of a real AI call.
 
 ## PHASE 12 — Billing ⏳ not started
 
