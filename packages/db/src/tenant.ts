@@ -28,6 +28,7 @@ const TENANT_SCOPED_MODELS = new Set<string>([
   "AutomationRun",
   "Reminder",
   "AiInteractionLog",
+  "Subscription",
 ]);
 
 /**
@@ -173,9 +174,15 @@ export type TenantDb = ReturnType<typeof getTenantDb>;
  * tenantId in its URL path — a widget visitor has no session either, and
  * the Origin-header check against that tenant's own widgetAllowedOrigins
  * is what makes trusting it safe (see apps/web's /api/widget/[tenantId]
- * route). In every case, getPlatformDb() is used ONLY for that initial
- * identity resolution — the actual read/write work that follows switches
- * to getTenantDb(tenantId) once the tenantId is confirmed legitimate.
+ * route); and (5) resolving which tenant a Stripe webhook event is for,
+ * by the Stripe customer id on the event — a Stripe webhook has no
+ * session either, and Stripe's own signature check
+ * (verifyAndParseWebhookEvent, packages/billing) is what makes trusting
+ * the event's claimed customer id safe (see apps/web's
+ * /api/webhooks/stripe route). In every case, getPlatformDb() is used
+ * ONLY for that initial identity resolution — the actual read/write work
+ * that follows switches to getTenantDb(tenantId) once the tenantId is
+ * confirmed legitimate.
  * Deliberately named and imported differently from getTenantDb() so any
  * cross-tenant access is visually obvious in a diff or code review.
  * Application code serving an already-tenant-scoped request must NEVER

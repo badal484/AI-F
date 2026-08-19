@@ -12,6 +12,7 @@
   "dependencies": {
     "@aif/ai": "^0.1.0",
     "@aif/automations": "^0.1.0",
+    "@aif/billing": "^0.1.0",
     "@aif/booking": "^0.1.0",
     "@aif/db": "^0.1.0",
     "@aif/queue": "^0.1.0",

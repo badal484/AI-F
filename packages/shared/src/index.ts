@@ -10,4 +10,5 @@ export * from "./schemas/booking";
 export * from "./schemas/whatsapp";
 export * from "./schemas/automations";
 export * from "./schemas/widget";
+export * from "./schemas/billing";
 export * from "./utils";

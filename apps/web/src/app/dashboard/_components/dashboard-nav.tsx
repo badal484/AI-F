@@ -19,6 +19,7 @@ const LINKS = [
   { href: "/dashboard/tags", label: "Tags" },
   { href: "/dashboard/knowledge", label: "Knowledge" },
   { href: "/dashboard/whatsapp-templates", label: "WhatsApp Templates" },
+  { href: "/dashboard/billing", label: "Billing" },
   { href: "/dashboard/settings", label: "Settings" },
 ];
 

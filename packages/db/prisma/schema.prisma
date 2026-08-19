@@ -103,6 +103,11 @@ model Tenant {
   /// header. See docs/ARCHITECTURE.md's "Website Widget" section for why
   /// this is enforced per-tenant rather than a single allowlist.
   widgetAllowedOrigins  String[] @default([])
+  /// Stripe Customer id (Phase 12) — created up front by the "Subscribe"
+  /// action, before redirecting to Stripe Checkout, not deferred to a
+  /// webhook. See docs/ARCHITECTURE.md's "Billing" section for why that
+  /// ordering matters (Stripe doesn't guarantee webhook delivery order).
+  stripeCustomerId      String?  @unique
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -123,6 +128,7 @@ model Tenant {
   automationRuns     AutomationRun[]
   reminders          Reminder[]
   aiInteractionLogs  AiInteractionLog[]
+  subscription       Subscription?
 
   @@index([agencyId])
   @@map("tenants")
@@ -684,4 +690,54 @@ model AiInteractionLog {
   @@index([tenantId])
   @@index([tenantId, createdAt])
   @@map("ai_interaction_logs")
+}
+
+enum PlanTier {
+  FREE
+  STARTER
+  PRO
+}
+
+/// Mirrors Stripe's own Subscription.status values exactly (verified
+/// against stripe@22.5.0's own type defs) rather than collapsing them
+/// into a smaller set — a lossy mapping (e.g. treating `paused` as
+/// `active`) would misrepresent real billing state.
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  PAUSED
+}
+
+/// A tenant's current Stripe subscription state (Phase 12). One row per
+/// Tenant (`tenantId @unique`) — this platform doesn't support a tenant
+/// holding more than one subscription at a time. Written exclusively by
+/// the Stripe webhook handler (apps/web/src/app/api/webhooks/stripe), via
+/// idempotent upserts keyed on tenantId — replaying the same Stripe event
+/// just re-writes the same target state, which is this model's whole
+/// idempotency strategy (MASTER_INSTRUCTIONS.md §"Idempotency"); there's
+/// no separate processed-event-id table because every write here is
+/// naturally idempotent by construction, unlike e.g. Message's
+/// externalId-based dedup guarding a `create` that isn't.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model Subscription {
+  id                   String             @id @default(cuid())
+  tenantId             String             @unique
+  tenant               Tenant             @relation(fields: [tenantId], references: [id])
+  stripeSubscriptionId String             @unique
+  stripePriceId        String
+  planTier             PlanTier
+  status               SubscriptionStatus
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([tenantId])
+  @@map("subscriptions")
 }

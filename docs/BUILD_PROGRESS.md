@@ -265,7 +265,28 @@ MASTER_INSTRUCTIONS.md names this phase "Usage tracking, failure rates" — buil
 - No cost/token tracking — the AI SDK's `usage` field (tokens in/out) wasn't captured alongside the rest of `AiInteractionLog`; deferred since no billing feature depends on it yet (Phase 12).
 - "AI is NOT CONFIGURED" is deliberately *not* logged to `AiInteractionLog` — every caller already logs that separately via `logNotConfigured()` before ever reaching `draftReply()`, and folding it in would conflate a deployment/config gap with an actual runtime failure of a real AI call.
 
-## PHASE 12 — Billing ⏳ not started
+## PHASE 12 — Billing ✅ (2026-08-19)
+
+MASTER_INSTRUCTIONS.md names this phase "Stripe SaaS architecture" — built as: Stripe Checkout to subscribe, the Stripe-hosted Customer Portal for everything else (payment methods, invoices, self-service cancellation), a webhook keeping our own `Subscription` record in sync, and a `/dashboard/billing` page showing real (never hardcoded) plan pricing fetched live from Stripe.
+
+**Built:**
+- New package `@aif/billing` (stripe@22.5.0 SDK): `client.ts` (NOT CONFIGURED discipline + a lazily-constructed singleton client, API version pinned and verified against the SDK's own type defs — see below), `plans.ts` (static tier list `FREE/STARTER/PRO`, price-id↔tier mapping via env vars, `listPlanPricing()` fetching each paid tier's *real* Stripe Price), `checkout.ts` (`getOrCreateStripeCustomer` + `createCheckoutSession`), `portal.ts` (`createPortalSession`), `webhook.ts` (`verifyAndParseWebhookEvent`, Stripe's signature-check-and-parse in one step), `status.ts` (`mapStripeSubscriptionStatus`, a 1:1 — not lossy — mapping to our enum).
+- Schema: `Tenant.stripeCustomerId` (set synchronously by the Subscribe action, before Checkout — see below), `Subscription` (one per tenant, written only by the webhook), `PlanTier`/`SubscriptionStatus` enums (the latter mirrors Stripe's own 8 status values exactly).
+- **A real bug caught by checking the SDK's own types instead of assuming:** `Stripe.Subscription` no longer carries a top-level `current_period_end` in the pinned API version (`2026-07-29.dahlia`) — it moved to `subscription.items.data[].current_period_end`. Read directly from `node_modules/stripe/esm/resources/Subscriptions.d.ts` before writing the webhook handler; would have been a silent wrong-value bug (both old and new locations type as `number`, so nothing would have caught it at compile time) if written from memory.
+- `apps/web/src/app/api/webhooks/stripe/route.ts` — verifies signature, upserts `Subscription` on `checkout.session.completed` (fetching the full Subscription from Stripe, since the Checkout Session event itself doesn't carry it) and `customer.subscription.updated`/`.deleted` (using the event's own Subscription object directly). Idempotent by construction (upsert keyed on `tenantId`, not a `create`) — no processed-event-id table needed, unlike WhatsApp's Message-creation webhook; see `docs/DATABASE.md`'s new "Stripe webhook idempotency" section for the full reasoning.
+- `apps/web/src/domains/billing/actions.ts` — `getBillingStatus()`, `startCheckout(tier)` (creates/reuses the Stripe Customer and saves `stripeCustomerId` *before* redirecting — closes a webhook-ordering gap, see Architecture doc), `openBillingPortal()`. All `requireWriteAccess()` — billing is treated as sensitive business configuration, reads included, not day-to-day work.
+- UI: `/dashboard/billing` — current plan/status, a "Manage billing" button (Stripe Portal redirect) once subscribed, and Subscribe buttons for each paid tier showing that tier's real live price (or "Not configured" if its price env var isn't set — never a guessed number).
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 11 workspaces.
+- Webhook signature verification checked against 4 hand-crafted cases (valid, tampered payload, wrong secret, missing header) using Stripe's own `generateTestHeaderString()` test helper — no real Stripe account or network call needed for this, same standalone-script discipline as Phase 7/8's tricky-logic verification.
+- Smoke test: `next dev` — `/dashboard/billing` correctly 307-redirects when unauthenticated; `POST /api/webhooks/stripe` with no signature correctly 401s; `/api/health` unaffected.
+- **Not verified:** an actual Stripe Checkout flow, a real webhook delivery from Stripe, or anything needing a live database — `DATABASE_URL`/`STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`/`STRIPE_PRICE_STARTER`/`STRIPE_PRICE_PRO` are all NOT CONFIGURED in this environment.
+
+**Known, accepted limitations (documented, not blocking):**
+- No feature gating tied to plan or subscription status — `Subscription.status` is tracked and shown but nothing currently restricts access based on it (e.g. a `PAST_DUE` tenant loses nothing). MASTER_INSTRUCTIONS.md's terse phase description doesn't specify what should be restricted and when; guessing that policy felt like fabricating a product decision rather than building what was actually specified.
+- No usage-based/metered billing, no multiple-simultaneous-subscriptions support (one `Subscription` per tenant, by schema design), no annual billing toggle, no in-app invoice history (all handled by the Stripe Portal instead).
+- Plan feature lists (what Starter/Pro actually include) aren't shown anywhere in the UI — only tier name and real price — since nothing is enforced yet, listing feature claims that aren't backed by real enforcement would itself be a fabricated fact.
 
 ## PHASE 13 — Platform Admin Dashboard ⏳ not started
 

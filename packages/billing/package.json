@@ -1,0 +1,17 @@
+{
+  "name": "@aif/billing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@aif/db": "*",
+    "@aif/shared": "*",
+    "stripe": "^22.5.0"
+  }
+}

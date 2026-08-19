@@ -35,4 +35,7 @@ export type {
   AutomationRunStatus,
   Reminder,
   AiInteractionLog,
+  Subscription,
+  PlanTier,
+  SubscriptionStatus,
 } from "./generated/prisma/client";
