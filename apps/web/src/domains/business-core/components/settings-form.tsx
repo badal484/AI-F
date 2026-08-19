@@ -1,23 +1,25 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { tenantProfileSchema, type TenantProfileInput } from "@aif/shared";
+import { tenantProfileSchema } from "@aif/shared";
 import type { Tenant } from "@aif/db";
 import { updateTenantProfile } from "@/domains/business-core/profile/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 
 export function SettingsForm({ tenant }: { tenant: Tenant }) {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
-  } = useForm<TenantProfileInput>({
+  } = useForm({
     resolver: zodResolver(tenantProfileSchema),
     defaultValues: {
       name: tenant.name,
@@ -26,6 +28,8 @@ export function SettingsForm({ tenant }: { tenant: Tenant }) {
       website: tenant.website ?? "",
       description: tenant.description ?? "",
       whatsappPhoneNumberId: tenant.whatsappPhoneNumberId ?? "",
+      widgetEnabled: tenant.widgetEnabled,
+      widgetAllowedOrigins: tenant.widgetAllowedOrigins,
     },
   });
 
@@ -80,6 +84,50 @@ export function SettingsForm({ tenant }: { tenant: Tenant }) {
         </p>
         {errors.whatsappPhoneNumberId && (
           <p className="text-sm text-destructive">{errors.whatsappPhoneNumberId.message}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <Controller
+          control={control}
+          name="widgetEnabled"
+          render={({ field }) => (
+            <Switch id="widget-enabled" checked={field.value} onCheckedChange={field.onChange} />
+          )}
+        />
+        <Label htmlFor="widget-enabled">Website chat widget enabled</Label>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="widget-origins">Allowed origins</Label>
+        <Controller
+          control={control}
+          name="widgetAllowedOrigins"
+          render={({ field }) => (
+            <Textarea
+              id="widget-origins"
+              rows={3}
+              placeholder={"https://example.com\nhttps://www.example.com"}
+              value={(field.value ?? []).join("\n")}
+              onChange={(e) =>
+                field.onChange(
+                  e.target.value
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter(Boolean),
+                )
+              }
+            />
+          )}
+        />
+        <p className="text-xs text-muted-foreground">
+          One origin per line — scheme and host only, no path (e.g. https://example.com). The widget only works when
+          embedded on a page whose origin is listed here.
+        </p>
+        {errors.widgetAllowedOrigins && (
+          <p className="text-sm text-destructive">
+            {Array.isArray(errors.widgetAllowedOrigins)
+              ? errors.widgetAllowedOrigins.find((e) => e?.message)?.message
+              : errors.widgetAllowedOrigins.message}
+          </p>
         )}
       </div>
       <Button type="submit" disabled={mutation.isPending}>

@@ -94,6 +94,15 @@ model Tenant {
   /// info — back to the right tenant. Globally unique: a real WhatsApp
   /// number belongs to exactly one tenant.
   whatsappPhoneNumberId String?  @unique
+  /// Kill switch for the embeddable website widget (Phase 10) — defaults
+  /// off so a tenant can't accidentally go live before configuring at
+  /// least one allowed origin below.
+  widgetEnabled         Boolean  @default(false)
+  /// Origins (scheme + host [+ port], no path) allowed to use this
+  /// tenant's widget — validated against the widget message API's Origin
+  /// header. See docs/ARCHITECTURE.md's "Website Widget" section for why
+  /// this is enforced per-tenant rather than a single allowlist.
+  widgetAllowedOrigins  String[] @default([])
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -345,6 +354,12 @@ model Conversation {
   assignedTo    User?               @relation(fields: [assignedToId], references: [id])
   channel       ConversationChannel @default(MANUAL)
   status        ConversationStatus  @default(OPEN)
+  /// Set only for channel = WEBSITE — a client-generated id (persisted in
+  /// the visitor's own browser localStorage, not a cookie; see
+  /// docs/ARCHITECTURE.md) correlating repeat messages from the same
+  /// anonymous website visitor to the same thread, since there's no phone
+  /// number or login to key off like WhatsApp/dashboard channels have.
+  widgetVisitorId String?
   lastMessageAt DateTime            @default(now())
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
@@ -356,6 +371,7 @@ model Conversation {
   @@index([customerId])
   @@index([leadId])
   @@index([assignedToId])
+  @@index([tenantId, widgetVisitorId])
   @@map("conversations")
 }
 

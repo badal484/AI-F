@@ -3,6 +3,10 @@ import { z } from "zod";
 const id = z.string().min(1);
 const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "must be in HH:mm 24-hour format");
 
+// Scheme + host [+ port] only — no path/query/fragment — since this is
+// compared against the browser's Origin header, which never carries one.
+const originPattern = /^https?:\/\/[a-zA-Z0-9.-]+(:\d{1,5})?$/;
+
 export const tenantProfileSchema = z.object({
   name: z.string().min(1).max(120),
   timezone: z.string().min(1).max(64),
@@ -10,6 +14,11 @@ export const tenantProfileSchema = z.object({
   website: z.string().url().max(255).optional().or(z.literal("")),
   description: z.string().max(2000).optional().or(z.literal("")),
   whatsappPhoneNumberId: z.string().max(50).optional().or(z.literal("")),
+  widgetEnabled: z.boolean().default(false),
+  widgetAllowedOrigins: z
+    .array(z.string().regex(originPattern, "must be an origin like https://example.com (no path)"))
+    .max(10)
+    .default([]),
 });
 export type TenantProfileInput = z.infer<typeof tenantProfileSchema>;
 
