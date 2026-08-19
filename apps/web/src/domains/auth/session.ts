@@ -14,13 +14,14 @@ import { isDatabaseConfigured, isSupabaseConfigured } from "@/lib/env";
  * /login that a bare null would produce. requireTenantContext() blocks on
  * isSuspended for everything except that one page's own messaging.
  *
- * This is one of only two places that read through getPlatformDb()
- * instead of getTenantDb(tenantId) for User/Tenant identity resolution
- * (the other being requirePlatformAdmin(), a separate identity entirely)
- * — at this point we don't yet know which tenant the caller belongs to,
- * so there is no tenantId to scope a tenant-scoped client with. The
- * lookup is a single indexed read on the globally-unique supabaseUserId
- * column. Every other server-side read/write must go through
+ * This is one of the few places that read through getPlatformDb() instead
+ * of getTenantDb(tenantId) for identity resolution (see getPlatformDb()'s
+ * own doc comment in packages/db for the full list) — at this point we
+ * don't yet know which tenant the caller belongs to, so there is no
+ * tenantId to scope a tenant-scoped client with. The lookup is a single
+ * indexed read on the globally-unique supabaseUserId column, including
+ * the tenant's Agency (if any) for white-label branding (Phase 18) in the
+ * same query. Every other server-side read/write must go through
  * getTenantDb(context.tenantId).
  */
 export async function resolveTenantContext(): Promise<TenantContext | null> {
@@ -39,12 +40,27 @@ export async function resolveTenantContext(): Promise<TenantContext | null> {
 
   const dbUser = await getPlatformDb().user.findUnique({
     where: { supabaseUserId: user.id },
-    include: { tenant: { select: { slug: true, name: true, isSuspended: true } } },
+    include: {
+      tenant: {
+        select: {
+          slug: true,
+          name: true,
+          isSuspended: true,
+          agency: { select: { name: true, logoUrl: true, primaryColor: true } },
+        },
+      },
+    },
   });
 
   if (!dbUser) {
     return null;
   }
+
+  const agency = dbUser.tenant.agency;
+  const agencyBranding =
+    agency && (agency.logoUrl || agency.primaryColor)
+      ? { name: agency.name, logoUrl: agency.logoUrl, primaryColor: agency.primaryColor }
+      : null;
 
   return {
     tenantId: dbUser.tenantId,
@@ -54,5 +70,6 @@ export async function resolveTenantContext(): Promise<TenantContext | null> {
     userEmail: dbUser.email,
     role: dbUser.role,
     isSuspended: dbUser.tenant.isSuspended,
+    agencyBranding,
   };
 }

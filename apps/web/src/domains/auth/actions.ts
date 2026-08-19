@@ -6,6 +6,16 @@ import { signInSchema, signUpSchema, type ActionResult, type SignInInput, type S
 import { createClient } from "@/lib/supabase/server";
 import { isDatabaseConfigured, isSupabaseConfigured } from "@/lib/env";
 
+/**
+ * Signup optionally links the new Tenant to a reseller Agency (Phase 18)
+ * via `agencyId`, which the signup page reads from a `?agency=<id>` query
+ * param on the URL an Agency shares with its own prospective clients —
+ * never a code a customer types in (a raw id isn't guessable, and this
+ * avoids needing any human-facing "enter your agency code" step). An
+ * unrecognized/stale id is silently ignored (signup still succeeds, just
+ * without an Agency association) rather than blocking the whole signup —
+ * a bad link shouldn't lock a real customer out.
+ */
 export async function signUp(input: SignUpInput): Promise<ActionResult> {
   if (!isSupabaseConfigured()) {
     return {
@@ -21,7 +31,7 @@ export async function signUp(input: SignUpInput): Promise<ActionResult> {
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
-  const { email, password, tenantName, tenantSlug } = parsed.data;
+  const { email, password, tenantName, tenantSlug, agencyId } = parsed.data;
 
   const existingTenant = await getPlatformDb().tenant.findUnique({
     where: { slug: tenantSlug },
@@ -29,6 +39,12 @@ export async function signUp(input: SignUpInput): Promise<ActionResult> {
   });
   if (existingTenant) {
     return { error: "That workspace URL is already taken. Choose a different one." };
+  }
+
+  let resolvedAgencyId: string | undefined;
+  if (agencyId) {
+    const agency = await getPlatformDb().agency.findUnique({ where: { id: agencyId }, select: { id: true } });
+    resolvedAgencyId = agency?.id;
   }
 
   const supabase = await createClient();
@@ -44,7 +60,7 @@ export async function signUp(input: SignUpInput): Promise<ActionResult> {
     // with — so it deliberately uses getPlatformDb(), not getTenantDb().
     await getPlatformDb().$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
-        data: { name: tenantName, slug: tenantSlug },
+        data: { name: tenantName, slug: tenantSlug, agencyId: resolvedAgencyId },
       });
       await tx.user.create({
         data: {

@@ -174,7 +174,7 @@ export type TenantDb = ReturnType<typeof getTenantDb>;
 
 /**
  * Cross-tenant access, restricted to a short, deliberate list of legitimate
- * uses. Two shapes of use:
+ * uses. Three shapes of use:
  *
  * Identity resolution — no tenantId/session exists yet to scope with, so
  * getPlatformDb() is used ONLY to resolve one, and the actual read/write
@@ -191,15 +191,32 @@ export type TenantDb = ReturnType<typeof getTenantDb>;
  * Stripe customer id on the event — a Stripe webhook has no session
  * either, and Stripe's own signature check (verifyAndParseWebhookEvent,
  * packages/billing) is what makes trusting the event's claimed customer
- * id safe (see apps/web's /api/webhooks/stripe route).
+ * id safe (see apps/web's /api/webhooks/stripe route); (5) resolving which
+ * tenant an inbound Twilio call is for, by the dialed "To" number, and —
+ * for that same call's later turns — which tenant a Conversation id
+ * (carried in a Twilio-signature-covered URL) belongs to, both trusted
+ * because of Twilio's own request-signature check (see apps/web's
+ * /api/webhooks/voice routes).
  *
- * Genuinely cross-tenant reporting/admin — (5) the Platform Admin
- * Dashboard (Phase 13, apps/web's /platform-admin routes), gated by
- * requirePlatformAdmin() (apps/web/src/domains/platform-admin/guard.ts),
- * an entirely separate auth check from tenant Users/roles. This is the
- * one legitimate case that DOESN'T switch to getTenantDb() afterward — a
- * cross-tenant list of every Tenant is the actual point, not a stepping
- * stone to a single tenantId.
+ * Genuinely cross-tenant reporting/admin, which does NOT switch to
+ * getTenantDb() afterward — the cross-tenant list itself is the point, not
+ * a stepping stone to a single tenantId: (6) the Platform Admin Dashboard
+ * (Phase 13, apps/web's /platform-admin routes), gated by
+ * requirePlatformAdmin(), seeing every Tenant on the deployment; (7) the
+ * Agency Admin Dashboard (Phase 18, apps/web's /agency-admin routes),
+ * gated by requireAgencyAdmin(), seeing only the Tenants belonging to one
+ * Agency — narrower than Platform Admin, but the SAME access pattern
+ * (getPlatformDb(), since AgencyAdmin/Agency are neither tenant-scoped nor
+ * self-scoped either), with every query manually filtered by agencyId at
+ * the call site rather than by any Prisma-extension-level enforcement —
+ * see AgencyAdmin's own doc comment in schema.prisma.
+ *
+ * A fourth shape, provisioning, deliberately does NOT exist through the
+ * app at all: there is no self-serve or in-app way to create a
+ * PlatformAdmin or AgencyAdmin row (both require direct DB access) —
+ * exposing one would be a privilege-escalation path, since either grants
+ * real cross-tenant reach. See docs/ARCHITECTURE.md's "Platform Admin
+ * Dashboard" and "White-Label / Reseller Architecture" sections.
  *
  * Deliberately named and imported differently from getTenantDb() so any
  * cross-tenant access is visually obvious in a diff or code review.

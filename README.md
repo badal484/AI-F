@@ -4,7 +4,7 @@ A multi-tenant SaaS + agency white-label platform that deploys AI assistants for
 
 ## Status
 
-Under active development, following the phase-gated workflow defined in [MASTER_INSTRUCTIONS.md](./MASTER_INSTRUCTIONS.md).
+**All 18 phases of [MASTER_INSTRUCTIONS.md](./MASTER_INSTRUCTIONS.md)'s phase-gated build plan are complete.** See [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for the full per-phase build log, what's verified vs. NOT CONFIGURED, and every documented scope decision along the way.
 
 - [PHASE 0 — Initial Audit](./docs/INITIAL_AUDIT.md) ✅
 - PHASE 1 — Foundation ✅
@@ -23,8 +23,10 @@ Under active development, following the phase-gated workflow defined in [MASTER_
 - PHASE 14 — Security Hardening ✅
 - PHASE 15 — Production Infrastructure & CI/CD ✅
 - PHASE 16 — Advanced AI ✅
-- PHASE 17 — Voice AI ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
-- PHASE 18 — White-Label / Reseller Architecture ⏳ next
+- PHASE 17 — Voice AI ✅
+- PHASE 18 — White-Label / Reseller Architecture ✅
+
+**None of this has been exercised against live infrastructure.** This environment has no configured Supabase/Postgres, Redis, Twilio, Stripe, WhatsApp, or AI provider credentials, and no Docker — every phase's real external-service behavior is implemented and reasoned through carefully (and, where possible, verified with standalone scripts against hand-crafted test cases) but not run end-to-end against the real thing. See each phase's entry in [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for exactly what was and wasn't verified, and [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) before deploying for real.
 
 ## Stack
 

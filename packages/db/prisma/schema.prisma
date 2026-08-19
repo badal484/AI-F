@@ -75,12 +75,53 @@ model Agency {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  /// White-label branding (Phase 18) — all optional; a Tenant whose Agency
+  /// leaves these unset shows this app's own default branding instead,
+  /// never a guessed/fallback value. Applied only to the authenticated
+  /// dashboard experience — the public login/signup pages always show
+  /// default branding, since showing agency branding *before*
+  /// authentication would need a per-agency custom domain (real DNS/
+  /// deployment infrastructure this environment can't set up or verify —
+  /// see docs/DEPLOYMENT.md).
+  logoUrl       String?
+  primaryColor  String?
+  supportEmail  String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
-  tenants Tenant[]
+  tenants      Tenant[]
+  agencyAdmins AgencyAdmin[]
 
   @@map("agencies")
+}
+
+/// A person with cross-tenant access scoped to ONE Agency (Phase 18) — all
+/// of that Agency's Tenants, none of anyone else's. The same identity
+/// shape as PlatformAdmin (not a User, since a User is inherently scoped
+/// to one Tenant, not an Agency spanning several) but narrower in reach.
+/// Same bootstrapping rule as PlatformAdmin, deliberately, for
+/// consistency: no self-serve or in-app way to create one — see
+/// PlatformAdmin's own doc comment for why, and
+/// docs/ARCHITECTURE.md's "White-Label / Reseller Architecture" section.
+///
+/// NEITHER TENANT-SCOPED NOR SELF-SCOPED — only ever queried through
+/// getPlatformDb(), manually filtered by agencyId at each call site (see
+/// apps/web/src/domains/agency-admin/actions.ts) — there is no Prisma
+/// Client Extension enforcing agency-scoping the way getTenantDb()
+/// enforces tenant-scoping; this is a real, documented difference, not an
+/// oversight. getTenantDb() refuses to query this model at all, same as
+/// PlatformAdmin (see packages/db/src/tenant.ts).
+model AgencyAdmin {
+  id             String   @id @default(cuid())
+  agencyId       String
+  agency         Agency   @relation(fields: [agencyId], references: [id])
+  supabaseUserId String   @unique
+  email          String   @unique
+  name           String?
+  createdAt      DateTime @default(now())
+
+  @@index([agencyId])
+  @@map("agency_admins")
 }
 
 /// A Tenant is one deployed business (a clinic, salon, real estate office, etc.).

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { signUpSchema, type SignUpInput } from "@aif/shared";
@@ -19,13 +20,19 @@ function slugify(value: string) {
 
 export function SignUpForm() {
   const [serverError, setServerError] = useState<string | null>(null);
+  // A reseller Agency shares its own signup link with a customer as
+  // ?agency=<id> (Phase 18) — never a code the customer types in, see
+  // signUp()'s own doc comment. Carried through as a hidden field, not a
+  // visible one; there's nothing for the person signing up to fill in.
+  const searchParams = useSearchParams();
+  const agencyId = searchParams.get("agency") ?? "";
   const {
     register,
     handleSubmit,
     setValue,
     getValues,
     formState: { errors, isSubmitting },
-  } = useForm<SignUpInput>({ resolver: zodResolver(signUpSchema) });
+  } = useForm<SignUpInput>({ resolver: zodResolver(signUpSchema), defaultValues: { agencyId } });
 
   async function onSubmit(values: SignUpInput) {
     setServerError(null);
@@ -37,6 +44,7 @@ export function SignUpForm() {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+      <input type="hidden" {...register("agencyId")} />
       <div className="space-y-2">
         <Label htmlFor="tenantName">Business name</Label>
         <Input

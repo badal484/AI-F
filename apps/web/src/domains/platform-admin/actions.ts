@@ -1,13 +1,23 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getPlatformDb, type Tenant, type Subscription } from "@aif/db";
-import { setTenantSuspendedSchema, type SetTenantSuspendedInput, type DataActionResult } from "@aif/shared";
+import { getPlatformDb, type Tenant, type Subscription, type Agency } from "@aif/db";
+import {
+  setTenantSuspendedSchema,
+  createAgencySchema,
+  setTenantAgencySchema,
+  nullifyEmptyStrings,
+  type SetTenantSuspendedInput,
+  type CreateAgencyInput,
+  type SetTenantAgencyInput,
+  type DataActionResult,
+} from "@aif/shared";
 import { requirePlatformAdmin } from "@/domains/platform-admin/guard";
 import { UnauthorizedError } from "@/domains/auth/guard";
 
 export type TenantWithBilling = Tenant & {
   subscription: Subscription | null;
+  agency: { id: string; name: string } | null;
   _count: { users: number };
 };
 
@@ -26,7 +36,11 @@ export async function listTenants(): Promise<DataActionResult<TenantWithBilling[
   try {
     await requirePlatformAdmin();
     const tenants = await getPlatformDb().tenant.findMany({
-      include: { subscription: true, _count: { select: { users: true } } },
+      include: {
+        subscription: true,
+        agency: { select: { id: true, name: true } },
+        _count: { select: { users: true } },
+      },
       orderBy: { createdAt: "desc" },
     });
     return { data: tenants };
@@ -79,6 +93,89 @@ export async function setTenantSuspended(input: SetTenantSuspendedInput): Promis
         isSuspended: parsed.data.isSuspended,
         suspendedAt: parsed.data.isSuspended ? new Date() : null,
       },
+    });
+
+    revalidatePath("/platform-admin");
+    return { data: tenant };
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return { error: err.message };
+    throw err;
+  }
+}
+
+// Phase 18 — White-Label / Reseller Architecture. Creating an Agency
+// (a reseller relationship) is a platform-admin action, not self-serve —
+// same trust-tier reasoning as everything else in this file. Provisioning
+// that Agency's first AgencyAdmin identity, though, stays a manual DB
+// step, same as PlatformAdmin itself — see AgencyAdmin's doc comment in
+// schema.prisma for why extending the "no in-app identity creation" rule
+// to AgencyAdmin too (rather than building a one-off UI for just this
+// identity) is the more consistent, not the lazier, choice.
+export async function listAgencies(): Promise<DataActionResult<(Agency & { _count: { tenants: number } })[]>> {
+  try {
+    await requirePlatformAdmin();
+    const agencies = await getPlatformDb().agency.findMany({
+      include: { _count: { select: { tenants: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return { data: agencies };
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return { error: err.message };
+    throw err;
+  }
+}
+
+export async function createAgency(input: CreateAgencyInput): Promise<DataActionResult<Agency>> {
+  try {
+    await requirePlatformAdmin();
+    const parsed = createAgencySchema.safeParse(input);
+    if (!parsed.success) {
+      return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+    }
+    const data = nullifyEmptyStrings(parsed.data);
+
+    const existing = await getPlatformDb().agency.findUnique({ where: { slug: data.slug } });
+    if (existing) {
+      return { error: "That agency slug is already taken" };
+    }
+
+    const agency = await getPlatformDb().agency.create({
+      data: {
+        name: data.name,
+        slug: data.slug,
+        logoUrl: data.logoUrl,
+        primaryColor: data.primaryColor,
+        supportEmail: data.supportEmail,
+      },
+    });
+
+    revalidatePath("/platform-admin");
+    return { data: agency };
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return { error: err.message };
+    throw err;
+  }
+}
+
+export async function setTenantAgency(input: SetTenantAgencyInput): Promise<DataActionResult<Tenant>> {
+  try {
+    await requirePlatformAdmin();
+    const parsed = setTenantAgencySchema.safeParse(input);
+    if (!parsed.success) {
+      return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+    }
+    const { tenantId, agencyId } = nullifyEmptyStrings(parsed.data);
+
+    if (agencyId) {
+      const agency = await getPlatformDb().agency.findUnique({ where: { id: agencyId }, select: { id: true } });
+      if (!agency) {
+        return { error: "Agency not found" };
+      }
+    }
+
+    const tenant = await getPlatformDb().tenant.update({
+      where: { id: tenantId },
+      data: { agencyId: agencyId ?? null },
     });
 
     revalidatePath("/platform-admin");
