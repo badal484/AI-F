@@ -8,11 +8,15 @@ const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Fri
  * Read-only lookup of this tenant's real services, locations, and hours.
  * The AI must call this for any factual claim about pricing, duration,
  * address, or hours — never invent them (MASTER_INSTRUCTIONS.md §5).
+ *
+ * Includes each service's/location's `id` — checkAvailability and
+ * bookAppointment (Phase 7) need those to know exactly what's being
+ * booked, not just a display name.
  */
 export function createGetBusinessInfoTool(tenantId: string) {
   return tool({
     description:
-      "Look up this business's real services (name, description, duration, price), locations (address, phone), and weekly operating hours. Always call this before stating any price, duration, address, or hours to a customer — never guess or invent these facts.",
+      "Look up this business's real services (id, name, description, duration, price), locations (id, address, phone), and weekly operating hours. Always call this before stating any price, duration, address, or hours to a customer — never guess or invent these facts. Also use it to find a service's/location's id before calling checkAvailability or bookAppointment.",
     inputSchema: z.object({}),
     execute: async () => {
       const db = getTenantDb(tenantId);
@@ -28,13 +32,16 @@ export function createGetBusinessInfoTool(tenantId: string) {
         phone: tenant?.phone ?? null,
         website: tenant?.website ?? null,
         services: services.map((s) => ({
+          id: s.id,
           name: s.name,
           description: s.description,
           durationMinutes: s.durationMinutes,
           price: `${(s.priceCents / 100).toFixed(2)} ${s.currency.toUpperCase()}`,
         })),
         locations: locations.map((l) => ({
+          id: l.id,
           name: l.name,
+          timezone: l.timezone,
           address: [l.addressLine1, l.addressLine2, l.city, l.state, l.postalCode]
             .filter(Boolean)
             .join(", "),
@@ -49,7 +56,6 @@ export function createGetBusinessInfoTool(tenantId: string) {
               closeTime: h.closeTime,
             })),
         })),
-        note: "Appointment booking is not available yet — do not tell customers a slot is confirmed or booked.",
       };
     },
   });

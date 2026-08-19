@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@aif/ai": "^0.1.0",
+    "@aif/booking": "^0.1.0",
     "@aif/db": "^0.1.0",
     "@aif/shared": "^0.1.0",
     "@base-ui/react": "^1.7.0",
@@ -21,6 +22,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.32.0",
+    "luxon": "^3.7.2",
     "next": "16.3.1",
     "next-themes": "^0.4.6",
     "react": "19.2.8",
@@ -36,6 +38,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/luxon": "^3.7.4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

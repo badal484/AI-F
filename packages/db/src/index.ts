@@ -1,5 +1,8 @@
 export { getTenantDb, getPlatformDb, type TenantDb } from "./tenant";
 export { setChunkEmbedding, searchChunks, type ChunkSearchResult } from "./vector";
+// Value export (not `export type`) — callers need runtime access to things
+// like Prisma.TransactionIsolationLevel.Serializable, not just the types.
+export { Prisma } from "./generated/prisma/client";
 export type {
   Role,
   Agency,
@@ -22,5 +25,6 @@ export type {
   KnowledgeDocument,
   DocumentStatus,
   DocumentChunk,
-  Prisma,
+  Appointment,
+  AppointmentStatus,
 } from "./generated/prisma/client";

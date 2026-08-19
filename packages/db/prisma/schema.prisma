@@ -101,6 +101,7 @@ model Tenant {
   messages           Message[]
   knowledgeDocuments KnowledgeDocument[]
   documentChunks     DocumentChunk[]
+  appointments       Appointment[]
 
   @@index([agencyId])
   @@map("tenants")
@@ -157,6 +158,7 @@ model Location {
 
   hours        LocationHours[]
   staffMembers StaffMember[]
+  appointments Appointment[]
 
   @@index([tenantId])
   @@map("locations")
@@ -201,6 +203,8 @@ model Service {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  appointments Appointment[]
+
   @@index([tenantId])
   @@map("services")
 }
@@ -227,6 +231,8 @@ model StaffMember {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
+  appointments Appointment[]
+
   @@index([tenantId])
   @@index([locationId])
   @@map("staff_members")
@@ -250,6 +256,7 @@ model Customer {
   leads         Lead[]
   tags          Tag[]
   conversations Conversation[]
+  appointments  Appointment[]
 
   @@index([tenantId])
   @@map("customers")
@@ -329,7 +336,8 @@ model Conversation {
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
-  messages Message[]
+  messages     Message[]
+  appointments Appointment[]
 
   @@index([tenantId])
   @@index([customerId])
@@ -414,4 +422,55 @@ model DocumentChunk {
   @@index([tenantId])
   @@index([documentId])
   @@map("document_chunks")
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+/// A booked slot for a Service at a Location, optionally with a specific
+/// StaffMember. startAt/endAt are stored as real UTC instants (Postgres
+/// timestamptz via Prisma DateTime) — Location.timezone is only used to
+/// interpret LocationHours' wall-clock "HH:mm" strings when computing
+/// availability (packages/booking/src/availability.ts), never stored on
+/// the Appointment itself.
+///
+/// customerName is required so every appointment identifies who it's for
+/// even without a full Customer record (mirrors Lead's own name/email/
+/// phone fields) — customerId links it to one when known.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model Appointment {
+  id             String            @id @default(cuid())
+  tenantId       String
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  serviceId      String
+  service        Service           @relation(fields: [serviceId], references: [id])
+  locationId     String
+  location       Location          @relation(fields: [locationId], references: [id])
+  staffMemberId  String?
+  staffMember    StaffMember?      @relation(fields: [staffMemberId], references: [id])
+  customerId     String?
+  customer       Customer?         @relation(fields: [customerId], references: [id])
+  conversationId String?
+  conversation   Conversation?     @relation(fields: [conversationId], references: [id])
+  customerName   String
+  customerEmail  String?
+  customerPhone  String?
+  startAt        DateTime
+  endAt          DateTime
+  status         AppointmentStatus @default(SCHEDULED)
+  notes          String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([tenantId])
+  @@index([locationId, startAt])
+  @@index([staffMemberId, startAt])
+  @@index([customerId])
+  @@map("appointments")
 }

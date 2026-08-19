@@ -140,7 +140,30 @@ No migrations have been run against a real database. Once Supabase credentials e
 - No file upload (PDF, DOCX, etc.) — paste-only. File upload needs S3-compatible Storage, which isn't wired up yet; add when it is.
 - A brief eventual-consistency window exists between a `DocumentChunk` row being created and its embedding being set (they can't be in the same transaction — one uses `getTenantDb()`, the other raw SQL). `searchChunks()` filters `WHERE embedding IS NOT NULL`, so this never surfaces as incorrect results, just a chunk that isn't searchable for a moment.
 
-## PHASE 7 — Booking Engine ⏳ not started
+## PHASE 7 — Booking Engine ✅ (2026-08-19)
+
+**Built:**
+- Schema: `Appointment` (`AppointmentStatus`: `SCHEDULED | CONFIRMED | CANCELLED | COMPLETED | NO_SHOW`), linking `Service` + `Location` + optional `StaffMember`/`Customer`/`Conversation`. `customerName` is required directly on the row (mirrors `Lead`'s own name/email/phone fields) so every appointment identifies who it's for even without a linked `Customer`. Added to `TENANT_SCOPED_MODELS`.
+- New package `packages/booking` (adds Luxon for timezone math), shared by the dashboard UI and the AI's tools so there's one implementation of "what's bookable," not two that could drift:
+  - `availability.ts` — real slots from `LocationHours` + existing `Appointment`s, all wall-clock math in the Location's own IANA timezone, converted to UTC only at the end.
+  - `book.ts` — re-checks for a conflict inside a `Serializable`-isolation transaction immediately before creating the row, catching both an application-level conflict and a genuine Postgres `P2034` serialization failure, returning `{ booked: false, reason }` for either rather than throwing.
+- `packages/db`: added a value export of `Prisma` (was previously type-only) so `Prisma.TransactionIsolationLevel.Serializable` and `Prisma.PrismaClientKnownRequestError` are usable outside `packages/db` itself.
+- Two AI tools finally built, closing the gap flagged in Phase 5's judgment call: `checkAvailability` and `bookAppointment` (`packages/ai/src/tools/`), both calling straight into `@aif/booking`. `getBusinessInfo` updated to return service/location `id`s (previously display-only) so the AI has something to pass these new tools. `reply.ts`'s system prompt now includes today's date (to resolve "tomorrow"/"next Monday") and its `stopWhen` raised from `stepCountIs(5)` to `stepCountIs(8)` for the longer typical chain (getBusinessInfo → checkAvailability → bookAppointment → text). `bookAppointment`'s tool wrapper reads the actual `{ booked: true|false }` result — not just whether the tool was *called* — before `draftReply` reports a booking back to its caller, since `bookAppointment` can soft-fail without throwing and treating "called" as "succeeded" would violate MASTER_INSTRUCTIONS.md §7.
+- Zod schemas (`packages/shared/src/schemas/booking.ts`) and Server Actions (`apps/web/src/domains/booking/appointments/actions.ts`) — `requireTenantContext()` (not `requireWriteAccess()`) for all of them, applying the Phase 3/4 permission lesson from the start this time rather than needing a later correction.
+- UI: `/dashboard/appointments` — a "New appointment" dialog (service/location/staff/date → real slots from `checkAvailability` → confirm with customer details) and a list with an inline status `Select`, optimistic like Leads'.
+
+**Verified before writing any UI code:** wrote a standalone script exercising the exact date/timezone/overlap logic `availability.ts` uses — confirmed weekday-numbering conversion (Luxon's 1=Mon..7=Sun → this schema's 0=Sun..6=Sat) against known dates, confirmed correct UTC-offset math either side of a real DST transition (`America/New_York`, 2026-11-01: 9am → 13:00 UTC before, 14:00 UTC after), and confirmed slot/overlap filtering excludes exactly the slots that should overlap a busy window and nothing else. This is the same "verify before trusting" discipline used for chunking in Phase 6, applied here because timezone math is exactly the kind of code that looks right and silently isn't.
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 6 workspaces (now including `@aif/booking`).
+- Smoke test: `next dev` — `/dashboard/appointments` redirects correctly when unauthenticated; `/api/health` unaffected; no import/build errors from the new package or schema.
+- As with every prior phase, actual booking flows (through the UI or the AI) have **not** been exercised against a live database — remains NOT CONFIGURED in this environment. This also means the `Serializable`-transaction conflict handling and the pgvector migration-drift risk flagged in Phase 6 are both still unverified against a real Postgres instance.
+
+**Known, accepted limitations (documented, not blocking):**
+- Conflict prevention is application-level (re-check-then-insert inside a `Serializable` transaction), not a database-level `EXCLUDE` constraint — the ideal fix needs `btree_gist` and a raw-SQL migration Prisma's schema can't express. See `docs/DATABASE.md`'s "Booking conflict prevention" section.
+- No true multi-resource capacity model — a Location without an explicit `staffMemberId` on the booking request is treated as having one concurrent booking at a time, which under-counts a Location with several independently-bookable staff. See `docs/ARCHITECTURE.md`'s Booking Engine section.
+- The AI's booking tools can't reschedule or cancel an existing appointment — only create new ones. The reply-drafting system prompt tells the AI to escalate those requests to a human; staff can reschedule/cancel manually via the dashboard's status control. Revisit if this becomes a common request once real conversations exist.
+- No calendar/day-view UI — appointments are a flat, most-recent-first table, matching every other list in this dashboard. A calendar view is a polish-phase candidate, not a Definition-of-Done requirement.
 
 ## PHASE 8 — WhatsApp Integration ⏳ not started
 
