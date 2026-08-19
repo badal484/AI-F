@@ -1,4 +1,5 @@
 export { isRedisConfigured, createRedisConnection } from "./connection";
+export { checkRateLimit, type RateLimitResult } from "./rate-limit";
 export {
   QUEUE_NAMES,
   whatsappInboundJobSchema,

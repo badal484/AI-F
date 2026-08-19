@@ -311,7 +311,28 @@ The first genuinely cross-tenant surface in this app — everywhere else "tenant
 - No audit log of suspend/reactivate actions beyond `Tenant.suspendedAt` (who suspended it, and why, aren't recorded).
 - No UI/flow for creating an Agency or attaching Tenants to one — `Agency` stays inert until Phase 18, per MASTER_INSTRUCTIONS.md's own phase ordering.
 
-## PHASE 14 — Security Hardening ⏳ not started
+## PHASE 14 — Security Hardening ✅ (2026-08-19)
+
+MASTER_INSTRUCTIONS.md names this phase with no further detail — interpreted as: close the concrete gaps already flagged as deferred-to-Phase-14 in earlier phases' own docs (a real, specific to-do list this repo had been keeping), plus actually investigate (not just re-note) the one standing `npm audit` finding, rather than a generic, unscoped security checklist.
+
+**Built:**
+- `packages/queue/src/rate-limit.ts`'s `checkRateLimit()` — Redis `INCR`+`EXPIRE` fixed-window rate limiter, NOT-CONFIGURED-degrades-to-unenforced like every other integration in this app. Wired into `POST /api/widget/[tenantId]/message` — the exact gap Phase 10's own docs flagged (origin validation stops an unauthorized browser origin, but not unlimited volume from a technically-legitimate one, and this endpoint does real, cost-incurring work on every accepted request). Two limits: per-visitor (10/min) and per-tenant (100/min).
+- `apps/web/next.config.ts`'s `headers()` — `Content-Security-Policy` (Next's documented no-nonce baseline; a nonce-based CSP was considered and deliberately not built, see below), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` denying camera/mic/geolocation. Also fixed `transpilePackages` missing `@aif/automations`/`@aif/billing` (an unrelated but trivial correctness fix noticed while already editing this exact file).
+- **`npm audit`'s `deepmerge-ts` finding, actually investigated, not re-deferred a third time** (first seen Phase 9, silently accepted again in Phase 12 without digging in). Confirmed dev-only exposure concretely: `prisma` is an optional `peerDependency` of `@prisma/client`, lives in `packages/db`'s `devDependencies` only; grepped the generated Prisma client source AND the actual `apps/web` production build output (`.next/`) for any reference to `"prisma"`/`"@prisma/config"`/`deepmerge-ts` — none found. This vulnerability's code genuinely never ships in what's deployed. `npm audit fix --force` would downgrade to `prisma@6.12.0`, conflicting with this repo's Prisma 7 driver-adapter architecture — not worth it for zero actual production exposure. Documented in `docs/ARCHITECTURE.md`'s new "Security Hardening" section with the exact verification commands, so this doesn't need re-investigating from scratch next time it comes up.
+- Swept for `dangerouslySetInnerHTML`, `eval()`/`new Function()`, and stray `console.log`/`console.error` of sensitive data across the whole codebase — none found.
+- Ran a security-focused review of this phase's own diff (via the `security-review` skill's methodology) before committing — no HIGH/MEDIUM findings; the diff is purely additive hardening (rate limiting, response headers) with no new data flow into auth/session/query-construction logic. (Along the way, fixed `git remote set-head origin main` — the local clone had no `origin/HEAD` symbolic ref set, which the review tooling's diff-range detection needed; a one-time local git metadata fix, not a code change.)
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 11 workspaces.
+- `checkRateLimit()` verified against a real local Redis instance: allow-up-to-limit, reject-beyond-limit, remaining-count accuracy, window-expiry reset, and independent counters per key — 6 cases, all passing — before wiring it into the route.
+- Smoke test: `next dev` — confirmed all 5 security headers are actually present on a real response (`curl -D -`), `/widget.js` and `/login` still serve correctly (CSP didn't break anything observable without a full browser), `/api/health` unaffected.
+- **Not verified:** the CSP's effect on a real, fully-rendered authenticated dashboard page in an actual browser (no live Supabase session in this environment to reach one) — this is the specific, disclosed reason a stricter nonce-based CSP wasn't attempted either. The rate limiter's behavior under real concurrent widget traffic (only exercised standalone, not through a live end-to-end widget conversation, since there's no live database in this environment).
+
+**Known, accepted limitations (documented, not blocking):**
+- CSP uses `'unsafe-inline'` for both `script-src` and `style-src` rather than nonces — a disclosed, reasoned tradeoff (see `docs/ARCHITECTURE.md`), not an oversight. Revisit once this can be verified against a real browser session.
+- No rate limiting on the Stripe/WhatsApp webhook routes — signature verification is a cheap, sufficient first gate for those (a forged request is rejected before any real work), a materially different risk profile than the widget endpoint.
+- No CI-level `npm audit`/dependency-scanning gate — that's Phase 15 (Production Infrastructure & CI/CD) scope.
+- No distinct-origin (X-Forwarded-For-based) component to the rate limiter — it keys on `tenantId`/`visitorId` only, not source IP, since IP headers aren't reliably trustworthy behind an unknown proxy setup without more infra context than this phase has.
 
 ## PHASE 15 — Production Infrastructure & CI/CD ⏳ not started
 

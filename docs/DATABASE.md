@@ -2,7 +2,7 @@
 
 PostgreSQL via Supabase. Prisma ORM (v7, driver-adapter mode — see `docs/ARCHITECTURE.md` for why). Schema source of truth: `packages/db/prisma/schema.prisma`.
 
-## Current schema (through Phase 13 — Platform Admin Dashboard)
+## Current schema (through Phase 14 — Security Hardening; no schema changes this phase)
 
 ```
 Agency (1) ──< (N) Tenant (1) ──< (N) User ──< (N) Lead (assignedTo)

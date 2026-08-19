@@ -19,8 +19,9 @@ Under active development, following the phase-gated workflow defined in [MASTER_
 - PHASE 10 — Website Widget ✅
 - PHASE 11 — Analytics & AI Evaluation ✅
 - PHASE 12 — Billing ✅
-- PHASE 13 — Platform Admin Dashboard ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
-- PHASE 14 — Security Hardening ⏳ next
+- PHASE 13 — Platform Admin Dashboard ✅
+- PHASE 14 — Security Hardening ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
+- PHASE 15 — Production Infrastructure & CI/CD ⏳ next
 
 ## Stack
 

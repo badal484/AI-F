@@ -1,9 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getPlatformDb, getTenantDb } from "@aif/db";
 import { draftReply, isAiConfigured } from "@aif/ai";
-import { widgetMessageSchema, createLogger } from "@aif/shared";
+import { checkRateLimit, isRedisConfigured } from "@aif/queue";
+import { widgetMessageSchema, createLogger, logNotConfigured } from "@aif/shared";
 
 const logger = createLogger("web:api:widget:message");
+
+// Per-visitor: a real chat conversation rarely needs more than this many
+// messages a minute. Per-tenant: a much looser ceiling that only matters
+// if many distinct visitorIds are used to spread out abuse (a single
+// visitor can't hit it without also hitting their own tighter limit
+// first). Both are Redis-backed (see checkRateLimit's own doc comment for
+// what happens when Redis is NOT CONFIGURED).
+const VISITOR_RATE_LIMIT = { limit: 10, windowSeconds: 60 };
+const TENANT_RATE_LIMIT = { limit: 100, windowSeconds: 60 };
 
 const AI_UNAVAILABLE_REPLY =
   "Thanks for your message — we've received it and someone from our team will follow up soon.";
@@ -93,6 +103,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     );
   }
   const { visitorId, message } = parsed.data;
+
+  if (!isRedisConfigured()) {
+    logNotConfigured(logger, "Redis", ["REDIS_URL"]);
+  } else {
+    const [visitorLimit, tenantLimit] = await Promise.all([
+      checkRateLimit(`widget:visitor:${tenantId}:${visitorId}`, VISITOR_RATE_LIMIT.limit, VISITOR_RATE_LIMIT.windowSeconds),
+      checkRateLimit(`widget:tenant:${tenantId}`, TENANT_RATE_LIMIT.limit, TENANT_RATE_LIMIT.windowSeconds),
+    ]);
+    if (!visitorLimit.allowed || !tenantLimit.allowed) {
+      logger.warn({ tenantId, visitorId }, "Widget message rate-limited");
+      return NextResponse.json(
+        { error: "Too many messages — please wait a moment and try again." },
+        { status: 429, headers },
+      );
+    }
+  }
 
   const db = getTenantDb(tenantId);
 
