@@ -27,4 +27,5 @@ export type {
   DocumentChunk,
   Appointment,
   AppointmentStatus,
+  WhatsAppTemplate,
 } from "./generated/prisma/client";

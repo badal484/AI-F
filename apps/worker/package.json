@@ -5,19 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsup",
-    "start": "node dist/index.js",
+    "start": "NODE_ENV=production tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint ."
   },
   "dependencies": {
+    "@aif/ai": "^0.1.0",
     "@aif/db": "*",
+    "@aif/queue": "^0.1.0",
     "@aif/shared": "*",
+    "@aif/whatsapp": "^0.1.0",
     "bullmq": "^6.1.2",
     "ioredis": "^6.0.0"
   },
   "devDependencies": {
-    "tsup": "^8.5.1",
     "tsx": "^4.23.12"
   }
 }

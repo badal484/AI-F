@@ -11,14 +11,18 @@ apps/
   web/      Next.js (App Router) — serverless UI, deployed to Vercel
   worker/   Long-running Node process — Redis/BullMQ, deployed as a container/VM
 packages/
-  db/       Prisma schema, generated client, tenant-isolation extension
-  shared/   Zod schemas, shared types, logger — used by both apps
-  ai/       Vercel AI SDK provider abstraction, tool definitions, intent detection, reply drafting
-  booking/  Availability computation, timezone math (Luxon), conflict-safe booking — used by both the dashboard UI and the AI's tools
-  config/   Shared tsconfig/eslint base configs
+  db/        Prisma schema, generated client, tenant-isolation extension
+  shared/    Zod schemas, shared types, logger — used by both apps
+  ai/        Vercel AI SDK provider abstraction, tool definitions, intent detection, reply drafting
+  booking/   Availability computation, timezone math (Luxon), conflict-safe booking — used by both the dashboard UI and the AI's tools
+  queue/     Shared Redis connection + BullMQ queue/job definitions — apps/web enqueues, apps/worker consumes
+  whatsapp/  Meta Graph API client, webhook signature verification, inbound payload parsing
+  config/    Shared tsconfig/eslint base configs
 ```
 
-`apps/web` and `apps/worker` are independently deployable: the UI runs serverless, the worker runs as a persistent process holding Redis/BullMQ connections. Both import `@aif/db`, `@aif/shared`, `@aif/ai`, and `@aif/booking` as workspace packages so schema, types, validation, and AI/booking logic never drift between them — each lives in its own package (not inside `apps/web`) specifically so `apps/worker` can call the same logic once Phase 8 (WhatsApp) needs it, without duplicating anything. `@aif/ai` depends on `@aif/booking` (for the `checkAvailability`/`bookAppointment` tools), not the other way around.
+`apps/web` and `apps/worker` are independently deployable: the UI runs serverless, the worker runs as a persistent process holding Redis/BullMQ connections. Both import `@aif/db`, `@aif/shared`, `@aif/ai`, `@aif/booking`, `@aif/queue`, and `@aif/whatsapp` as workspace packages so schema, types, validation, AI, booking, and messaging logic never drift between them — each lives in its own package (not inside `apps/web`) specifically so `apps/worker` can run the same logic. `@aif/ai` depends on `@aif/booking` (for the `checkAvailability`/`bookAppointment` tools); `apps/worker`'s WhatsApp job processors depend on `@aif/ai`, `@aif/whatsapp`, and `@aif/queue` together.
+
+**`apps/worker` runs via `tsx`, not a bundled `dist/`, in both dev and production** (`npm start` is `tsx src/index.ts`, same tool as `dev`) — this was a deliberate correction during Phase 8. The original Phase 1 setup bundled the worker with `tsup`/esbuild, which worked until this phase's code first imported `@aif/db` from within `apps/worker`: Prisma's generated client (and `pg`, `@prisma/adapter-pg`'s driver) both rely on dynamic `require()` internally, the same class of problem `pino` had in Phase 1 — but this time adding more packages to tsup's `external` list only uncovered further dynamic requires deeper in Prisma's own runtime, rather than fixing it. `tsx` transpiles per-file through Node's normal module resolution instead of statically inlining the whole dependency graph into one file, which sidesteps the entire bug class rather than chasing it. Runtime-verified before and after the fix (the pre-fix build produced a working artifact that crashed immediately on `node dist/index.js`) — see `docs/BUILD_PROGRESS.md`'s Phase 8 entry.
 
 Within `apps/web/src`, code is organized by domain rather than by route:
 
@@ -32,17 +36,19 @@ domains/
   ai-agent/               actions.ts wiring @aif/ai (intent detection, reply drafting) into the Inbox UI
   knowledge/              documents (chunk+embed on create) — actions + UI, including a test-search panel
   booking/                appointments — actions wiring @aif/booking + a find-a-time/confirm booking dialog
-  (whatsapp, billing,
-   platform-admin, analytics — added as their phases land)
+  whatsapp/               templates (config) + sendWhatsAppTemplateToConversation (day-to-day) — actions + UI
+  (billing, platform-admin,
+   analytics — added as their phases land)
 components/ui/          shadcn/ui primitives only
 lib/                    supabase clients, env helpers, utils
+app/api/webhooks/       webhook receivers — thin: verify, parse, enqueue for apps/worker; no business logic here
 ```
 
 ## Server Actions as the data layer
 
 CRUD domains (business-core, crm, inbox, and later phases) skip a separate REST/route-handler layer: Server Actions (`"use server"` functions under each domain's `actions.ts`) are called directly as TanStack Query `queryFn`/`mutationFn`, since a Server Action is just an async function that already runs server-side regardless of whether it's invoked from a `<form action>` or a client component's `fetch`-free call. This keeps Zod validation and tenant-isolation logic in one place instead of duplicating it across an API route and an action. List pages use `useQuery` + `useMutation` with optimistic cache updates (`queryClient.setQueryData`) per MASTER_INSTRUCTIONS.md §6; single-record forms (e.g. Settings) use `useMutation` alone.
 
-Every read is wrapped in `requireTenantContext()` (any authenticated role). Mutations split into two tiers — see `apps/web/src/domains/auth/guard.ts`: `requireWriteAccess()` (OWNER/ADMIN only) for *business configuration* (Tenant profile, Locations, Services, Staff, Tags), and plain `requireTenantContext()` for *day-to-day work* (Customers, Leads, everything in the Inbox, Knowledge documents, and Appointments) — `AGENT` exists specifically for that second tier, so gating it behind `requireWriteAccess()` would lock AGENT out of the job the role exists for. Reach for the right one deliberately when adding a new domain rather than defaulting to `requireWriteAccess()` for every mutation.
+Every read is wrapped in `requireTenantContext()` (any authenticated role). Mutations split into two tiers — see `apps/web/src/domains/auth/guard.ts`: `requireWriteAccess()` (OWNER/ADMIN only) for *business configuration* (Tenant profile, Locations, Services, Staff, Tags, WhatsApp templates), and plain `requireTenantContext()` for *day-to-day work* (Customers, Leads, everything in the Inbox, Knowledge documents, Appointments, and sending a WhatsApp template to a conversation) — `AGENT` exists specifically for that second tier, so gating it behind `requireWriteAccess()` would lock AGENT out of the job the role exists for. Reach for the right one deliberately when adding a new domain rather than defaulting to `requireWriteAccess()` for every mutation.
 
 ## Multi-tenant isolation
 
@@ -82,6 +88,17 @@ Supabase Auth (session cookies via `@supabase/ssr`). `apps/web/src/proxy.ts` ref
 - **Booking** (`src/book.ts`) — `bookAppointment()` re-checks for a conflict inside a `Serializable`-isolation transaction immediately before creating the row (the slot the caller saw a moment earlier could be gone by now), and returns `{ booked: false, reason }` rather than throwing on a conflict — including a genuine Postgres serialization failure (`P2034`), which is caught and reported the same way. See `docs/DATABASE.md`'s "Booking conflict prevention" section for what this does and doesn't guarantee, and the ideal (unbuilt) fix.
 - **UI** (`apps/web/src/domains/booking/`) — `/dashboard/appointments`: a "New appointment" dialog (pick service/location/staff/date → real available slots → confirm with customer details) and a list with an inline status control, following the same patterns as Leads/Conversations.
 
+## WhatsApp Integration (Phase 8)
+
+This is the phase that actually exercises MASTER_INSTRUCTIONS.md's "hybrid deployment" architecture: `apps/web` receives and enqueues, `apps/worker` does the real work.
+
+- **Inbound flow:** Meta POSTs to `apps/web/src/app/api/webhooks/whatsapp/route.ts` → the route verifies `X-Hub-Signature-256` against `WHATSAPP_APP_SECRET` (`packages/whatsapp`'s `verifyWebhookSignature`, constant-time compare) → parses the payload (`parseInboundWebhook`, text messages only for this baseline — other message types are silently skipped, not guessed at) → resolves the tenant by the webhook's `phone_number_id` via `getPlatformDb()` (the third sanctioned use of it — see `docs/DATABASE.md`) → enqueues one `whatsapp-inbound` job per message (`packages/queue`) → acks 200 immediately. The route does no AI/DB work itself, on purpose: webhook handlers must ack fast, and Meta retries non-2xx responses.
+- **`apps/worker/src/queues/whatsapp-inbound.ts`** does the actual work: finds/creates the `Customer` (exact phone match only — no E.164 normalization, a documented scope limit) and an open `Conversation`, records the `Message` (idempotent — see `docs/DATABASE.md`'s WhatsApp idempotency section), then — unless the conversation is already `HUMAN_REQUIRED` — calls `draftReply()` (the same Phase 5 function the Inbox's "Draft AI reply" button uses) and either enqueues the AI's reply for sending, or leaves it for staff if the AI escalated. This is the "communicate via WhatsApp" half of MASTER_INSTRUCTIONS.md's business vision actually closing the loop: real inbound message → AI grounded in real tenant data and tools → real reply sent back, or a real human handoff.
+- **Outbound flow, one choke point:** both staff-composed replies (`apps/web`'s `sendMessage`, when a conversation's `channel` is `WHATSAPP`) and AI-drafted auto-replies (the inbound processor above) enqueue into the *same* `whatsapp-outbound` queue rather than calling the WhatsApp API themselves — `apps/worker/src/queues/whatsapp-outbound.ts` is the only place `sendTextMessage()` is actually called, so retry/rate-limit behavior only needs to live in one place. **Deliberate, documented exception:** manually sending a *template* message (`sendWhatsAppTemplateToConversation`) calls `sendTemplateMessage()` directly from the Server Action instead of going through the queue — it's a low-frequency, explicit staff action, not an automated reaction, so stretching the queue's "one choke point" principle to cover it wasn't worth the complexity.
+- **Idempotency** (MASTER_INSTRUCTIONS.md §4) is two layers deep: a BullMQ job-id dedupe (`wa-inbound:${waMessageId}`) catches most Meta webhook redeliveries before a second attempt even starts, and the `Message` table's `@@unique([tenantId, externalId])` constraint is the final guard if one slips past that. See `docs/DATABASE.md`.
+- **Message templates** — `WhatsAppTemplate` is a local registry staff fill in to match what Meta already approved (not synced automatically — no Meta API integration for reading templates back was built). Required outside Meta's 24-hour customer-service window, when a free-form send would be rejected; the outbound worker doesn't auto-detect a closed window and switch to a template on its own (that would require guessing Meta's actual rejection error shape without live credentials to confirm it) — staff trigger a template send explicitly from the Inbox when they know it's needed.
+- **Not built:** media/attachment messages (images, documents, location, etc. — text only), delivery/read-receipt status tracking (Meta sends these as separate webhook events), and a true multi-resource capacity model for who can receive an inbound conversation (mirrors the same scope decision `packages/booking` made in Phase 7).
+
 ## Documented deviations from MASTER_INSTRUCTIONS.md §3
 
 Approved exceptions to the exact stack named in MASTER_INSTRUCTIONS.md, each because the tool's current released behavior differs from what was specified:
@@ -89,6 +106,7 @@ Approved exceptions to the exact stack named in MASTER_INSTRUCTIONS.md, each bec
 - **Radix Primitives → Base UI.** The shadcn/ui CLI (v4.18, current as of this phase) now generates components on top of [Base UI](https://base-ui.com), Radix's own successor library (same maintainers), not `@radix-ui/react-*`. Approved by the product owner 2026-08-19 rather than pinning an older shadcn CLI version. Base UI's polymorphism API is a `render` prop (`<Button render={<Link href="/x" />}>`) instead of Radix/shadcn's older `asChild` + `Slot` pattern — use `render`, not `asChild`, in any new component built on these primitives.
 - **Prisma 7 driver adapters.** Prisma 7 removed `url`/`directUrl` from the `datasource` block in `schema.prisma` entirely; connection configuration now lives in `packages/db/prisma.config.ts`, and `PrismaClient` is constructed with an explicit adapter (`@prisma/adapter-pg`, node-postgres) rather than the built-in Rust query engine. This is Prisma's current recommended setup, not a deviation from a documented stack choice, but is called out here because it changes how `DATABASE_URL` is wired: there's a single `DATABASE_URL` (no separate `DIRECT_URL`) and it should be a **direct/session** connection string, not a pgbouncer transaction-pooler URL — `prisma migrate` needs session-level features that transaction pooling doesn't support.
 - **Next.js `middleware.ts` → `proxy.ts`.** Next.js 16 renamed the `middleware` file convention to `proxy` (same capability — session refresh, route protection — new name/export). `apps/web/src/proxy.ts` uses the current convention.
+- **Meta Graph API version.** `packages/whatsapp/src/client.ts` defaults to `v25.0`, confirmed current by fetching Meta's own docs directly on 2026-08-19 rather than assuming a remembered version (an older SDK's docs, also fetched during that research, referenced `v16.0` — this API version genuinely drifts over time). Overridable via `WHATSAPP_API_VERSION` without a code change; re-verify against Meta's docs before relying on the default once real credentials are configured.
 
 ## Health check
 

@@ -1,5 +1,8 @@
+import type { Worker } from "bullmq";
 import { createLogger, logNotConfigured } from "@aif/shared";
-import { createRedisConnection, isRedisConfigured } from "./redis";
+import { createRedisConnection, isRedisConfigured } from "@aif/queue";
+import { startWhatsAppInboundWorker } from "./queues/whatsapp-inbound";
+import { startWhatsAppOutboundWorker } from "./queues/whatsapp-outbound";
 
 const logger = createLogger("worker");
 
@@ -10,26 +13,29 @@ async function main() {
   }
 
   const connection = isRedisConfigured() ? createRedisConnection() : null;
+  const workers: Worker[] = [];
 
   if (connection) {
     try {
       await connection.ping();
       logger.info("Connected to Redis");
+
+      workers.push(startWhatsAppInboundWorker(connection));
+      workers.push(startWhatsAppOutboundWorker(connection));
+      logger.info({ queues: workers.length }, "Registered BullMQ workers");
     } catch (err) {
-      logger.error({ err }, "Failed to connect to Redis");
+      logger.error({ err }, "Failed to connect to Redis — queues will not run");
     }
+  } else {
+    logger.warn("Worker foundation ready — no queues registered (Redis NOT CONFIGURED)");
   }
 
-  // Phase 1 (Foundation) registers no queues yet — BullMQ Queue/Worker
-  // instances are added starting Phase 8 (WhatsApp) and Phase 9
-  // (Automations), reusing `connection` above. This heartbeat keeps the
-  // process alive as the long-running worker it will become.
-  logger.info("Worker foundation ready — no queues registered yet");
   const heartbeat = setInterval(() => logger.debug("heartbeat"), 60_000);
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Shutting down worker");
     clearInterval(heartbeat);
+    await Promise.all(workers.map((w) => w.close()));
     if (connection) {
       await connection.quit();
     }

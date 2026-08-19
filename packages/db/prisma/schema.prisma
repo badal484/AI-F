@@ -78,17 +78,24 @@ model Agency {
 /// A Tenant is one deployed business (a clinic, salon, real estate office, etc.).
 /// This is the unit of isolation for every tenant-scoped model.
 model Tenant {
-  id          String   @id @default(cuid())
-  agencyId    String?
-  agency      Agency?  @relation(fields: [agencyId], references: [id])
-  name        String
-  slug        String   @unique
-  timezone    String   @default("UTC")
-  phone       String?
-  website     String?
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  agencyId              String?
+  agency                Agency?  @relation(fields: [agencyId], references: [id])
+  name                  String
+  slug                  String   @unique
+  timezone              String   @default("UTC")
+  phone                 String?
+  website               String?
+  description           String?
+  /// Meta phone_number_id this tenant sends/receives WhatsApp on. One
+  /// platform-level Meta app/access token (WHATSAPP_ACCESS_TOKEN) can send
+  /// on behalf of any phone number registered to it, so this is what maps
+  /// an inbound webhook — which only carries a phone_number_id, no tenant
+  /// info — back to the right tenant. Globally unique: a real WhatsApp
+  /// number belongs to exactly one tenant.
+  whatsappPhoneNumberId String?  @unique
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   users              User[]
   locations          Location[]
@@ -102,6 +109,7 @@ model Tenant {
   knowledgeDocuments KnowledgeDocument[]
   documentChunks     DocumentChunk[]
   appointments       Appointment[]
+  whatsappTemplates  WhatsAppTemplate[]
 
   @@index([agencyId])
   @@map("tenants")
@@ -360,9 +368,16 @@ model Message {
   senderId       String?
   sender         User?         @relation(fields: [senderId], references: [id])
   body           String
+  /// The provider's own message id (e.g. WhatsApp's `wamid...`), for
+  /// idempotency — Meta can redeliver the same webhook event, and this
+  /// unique constraint is what stops that from creating a duplicate
+  /// Message row. Null for staff/manually-logged messages, which have no
+  /// external id.
+  externalId     String?
   createdAt      DateTime      @default(now())
   tenant         Tenant        @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, externalId])
   @@index([tenantId])
   @@index([conversationId])
   @@map("messages")
@@ -473,4 +488,27 @@ model Appointment {
   @@index([staffMemberId, startAt])
   @@index([customerId])
   @@map("appointments")
+}
+
+/// A local record of a WhatsApp message template Meta has approved for
+/// this tenant. Required to message a customer outside Meta's 24-hour
+/// customer-service window (free-form text is rejected then) — see
+/// packages/whatsapp's sendTemplateMessage(). Not synced from Meta; staff
+/// enter it here to match what was actually approved in Meta Business
+/// Manager, so `name`/`language` must be typed exactly right.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model WhatsAppTemplate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  language  String   @default("en_US")
+  bodyText  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("whatsapp_templates")
 }

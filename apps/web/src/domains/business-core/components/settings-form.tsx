@@ -25,6 +25,7 @@ export function SettingsForm({ tenant }: { tenant: Tenant }) {
       phone: tenant.phone ?? "",
       website: tenant.website ?? "",
       description: tenant.description ?? "",
+      whatsappPhoneNumberId: tenant.whatsappPhoneNumberId ?? "",
     },
   });
 
@@ -66,6 +67,20 @@ export function SettingsForm({ tenant }: { tenant: Tenant }) {
         <Label htmlFor="description">Description</Label>
         <Textarea id="description" rows={3} {...register("description")} />
         {errors.description && <p className="text-sm text-destructive">{errors.description.message}</p>}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="whatsapp-phone-number-id">WhatsApp phone number ID</Label>
+        <Input
+          id="whatsapp-phone-number-id"
+          placeholder="From Meta Business Manager"
+          {...register("whatsappPhoneNumberId")}
+        />
+        <p className="text-xs text-muted-foreground">
+          The Meta phone_number_id for this business&apos;s WhatsApp number, not the phone number itself.
+        </p>
+        {errors.whatsappPhoneNumberId && (
+          <p className="text-sm text-destructive">{errors.whatsappPhoneNumberId.message}</p>
+        )}
       </div>
       <Button type="submit" disabled={mutation.isPending}>
         {mutation.isPending ? "Saving…" : "Save changes"}

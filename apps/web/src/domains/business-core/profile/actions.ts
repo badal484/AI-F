@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getTenantDb, type Tenant } from "@aif/db";
-import { tenantProfileSchema, type DataActionResult, type TenantProfileInput } from "@aif/shared";
+import { tenantProfileSchema, nullifyEmptyStrings, type DataActionResult, type TenantProfileInput } from "@aif/shared";
 import { requireTenantContext, requireWriteAccess, UnauthorizedError } from "@/domains/auth/guard";
 
 export async function getTenantProfile(): Promise<DataActionResult<Tenant>> {
@@ -31,7 +31,11 @@ export async function updateTenantProfile(input: TenantProfileInput): Promise<Da
 
     const tenant = await getTenantDb(context.tenantId).tenant.update({
       where: { id: context.tenantId },
-      data: parsed.data,
+      // whatsappPhoneNumberId is @unique — an empty string left as "" (not
+      // null) would collide the moment a second tenant also leaves it
+      // blank, since Postgres unique constraints treat multiple ""s as
+      // duplicates but exempt NULLs.
+      data: nullifyEmptyStrings(parsed.data),
     });
 
     revalidatePath("/dashboard/settings");

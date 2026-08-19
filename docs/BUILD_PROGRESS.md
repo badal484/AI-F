@@ -9,7 +9,7 @@ See `docs/INITIAL_AUDIT.md`. Approved decisions: Supabase (DB+Auth+Storage), Ups
 ## PHASE 1 — Foundation ✅ (2026-08-19)
 
 **Built:**
-- npm workspaces monorepo: `apps/web` (Next.js 16, App Router, TS, Tailwind v4), `apps/worker` (Node, bundled with tsup), `packages/db` (Prisma 7 + tenant-isolation extension), `packages/shared` (Zod schemas, types, logger), `packages/config` (shared tsconfig/eslint base).
+- npm workspaces monorepo: `apps/web` (Next.js 16, App Router, TS, Tailwind v4), `apps/worker` (Node, bundled with tsup — corrected to `tsx` in Phase 8, see that entry), `packages/db` (Prisma 7 + tenant-isolation extension), `packages/shared` (Zod schemas, types, logger), `packages/config` (shared tsconfig/eslint base).
 - shadcn/ui installed (on Base UI, not Radix — approved deviation, see `docs/ARCHITECTURE.md`), Zustand, TanStack Query wired into the root layout.
 - Prisma schema: `Agency`, `Tenant`, `User` (`Role`: OWNER/ADMIN/AGENT). See `docs/DATABASE.md`.
 - Tenant isolation: `getTenantDb(tenantId)` / `getPlatformDb()` Prisma Client Extension in `packages/db/src/tenant.ts`.
@@ -23,7 +23,7 @@ See `docs/INITIAL_AUDIT.md`. Approved decisions: Supabase (DB+Auth+Storage), Ups
 **Verified (2026-08-19):**
 - `npm run typecheck` — clean across all 4 workspaces.
 - `npm run lint` — clean across all 4 workspaces.
-- `npm run build` — clean across all 4 workspaces (`prisma generate`, `next build`, `tsup`).
+- `npm run build` — clean across all 4 workspaces (`prisma generate`, `next build`, `tsup` — `apps/worker`'s bundling step was later removed in Phase 8).
 - Smoke test: `next dev` — `/`, `/login`, `/signup` return 200; `/dashboard` redirects (307) when unauthenticated; `/api/health` correctly reports all three integrations as NOT CONFIGURED with status `ok` (nothing configured is nothing broken).
 - `apps/worker`: verified both the NOT CONFIGURED path (no `REDIS_URL`) and the connected path (local `redis-server`) start cleanly and idle without crashing.
 
@@ -165,7 +165,31 @@ No migrations have been run against a real database. Once Supabase credentials e
 - The AI's booking tools can't reschedule or cancel an existing appointment — only create new ones. The reply-drafting system prompt tells the AI to escalate those requests to a human; staff can reschedule/cancel manually via the dashboard's status control. Revisit if this becomes a common request once real conversations exist.
 - No calendar/day-view UI — appointments are a flat, most-recent-first table, matching every other list in this dashboard. A calendar view is a polish-phase candidate, not a Definition-of-Done requirement.
 
-## PHASE 8 — WhatsApp Integration ⏳ not started
+## PHASE 8 — WhatsApp Integration ✅ (2026-08-19)
+
+**Built:**
+- Schema: `Message.externalId` (`@@unique([tenantId, externalId])`, for idempotency), `Tenant.whatsappPhoneNumberId` (globally `@unique`, maps an inbound webhook's `phone_number_id` back to a tenant), new model `WhatsAppTemplate`.
+- New package `packages/queue` — moved the Redis connection factory out of `apps/worker` (previously private to it) since `apps/web` now needs it too, to enqueue jobs. `QUEUE_NAMES`, Zod-validated job payloads, and `enqueueWhatsAppInbound()`/`enqueueWhatsAppOutbound()`. Job ids are the WhatsApp message id (inbound) / our own Message id (outbound) — BullMQ's own id-based dedupe is the first idempotency layer, before the DB constraint.
+- New package `packages/whatsapp` — Meta Graph API client (`sendTextMessage`, `sendTemplateMessage`), webhook signature verification (`verifyWebhookSignature`, HMAC-SHA256 over the raw body, constant-time compare) and the GET verification handshake (`verifyWebhookHandshake`), and a defensive payload parser (`parseInboundWebhook`, text messages only). Verified the exact current payload/request shapes and Graph API version (`v25.0`) by fetching Meta's own docs directly rather than assuming a remembered shape — an older SDK's docs, fetched during the same research, referenced `v16.0`, confirming this does drift.
+- `apps/worker/src/queues/whatsapp-inbound.ts` and `whatsapp-outbound.ts` — the first real BullMQ `Worker` instances in this repo (Phase 1 through 7 only ever had the connection scaffolding). Inbound: find/create Customer+Conversation, idempotently record the Message, then `draftReply()` (Phase 5) and either enqueue the AI's reply or leave the conversation for a human if it escalated or was already `HUMAN_REQUIRED`. Outbound: the single place that actually calls `sendTextMessage()` — both staff replies and AI auto-replies enqueue here rather than calling the API themselves.
+- `apps/web`: `/api/webhooks/whatsapp` (GET handshake, POST verify+parse+enqueue, no AI/DB work inline — acks fast per MASTER_INSTRUCTIONS.md's hybrid deployment architecture), `sendMessage` (inbox) now also enqueues an outbound send for `WHATSAPP`-channel conversations, new `domains/whatsapp` (template CRUD, config-tier; `sendWhatsAppTemplateToConversation`, day-to-day-tier, called directly rather than via the queue — a documented, deliberate exception for this low-frequency manual action). Settings gained a `whatsappPhoneNumberId` field; fixed via `nullifyEmptyStrings` before save, since that field is `@unique` and a stray `""` (instead of `null`) would collide the moment a second tenant also left it blank.
+
+**A real bug found and fixed mid-phase — not just a doc update:** `apps/worker` had been bundled into a single `dist/index.js` via `tsup`/esbuild since Phase 1, which worked because nothing in `apps/worker` had imported `@aif/db` before. The first WhatsApp processor to do so broke at runtime — Prisma's generated client (and `pg`, `@prisma/adapter-pg`'s driver) rely on dynamic `require()` internally, the same problem class `pino` hit in Phase 1. Unlike `pino`, adding more packages to tsup's `external` list didn't fix it — each fix uncovered another dynamic `require()` deeper in Prisma's own runtime (`pg` → then `@prisma/client/runtime/client.js` itself). Concluded this wasn't a one-off and switched `apps/worker` to run via `tsx src/index.ts` in production too (same tool already used for `dev`), removing the bundling step entirely — `tsx` transpiles per-file through Node's normal module resolution instead of statically inlining the whole dependency graph, which sidesteps this entire bug class rather than chasing it further. Removed `tsup` as a dependency. **Verified the fix, not just the build passing:** `node dist/index.js` (the old path) crashed immediately with `Dynamic require of "path" is not supported`; `tsx src/index.ts` (the new path) started cleanly, connected to a local Redis, and registered both BullMQ workers.
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint` — clean across all 8 workspaces (now including `@aif/queue` and `@aif/whatsapp`). `npm run build` — clean (worker now has no build script; skipped gracefully via `--if-present`, by design).
+- Runtime-verified directly, not just via the build passing: `verifyWebhookSignature`/`verifyWebhookHandshake` against 7 hand-constructed cases (valid/invalid/tampered/missing signature, correct/wrong token/mode) — all passed; `parseInboundWebhook` against Meta's exact documented payload shape, a non-text message (correctly skipped), and malformed/null input (correctly returns `[]`) — all passed.
+- Smoke test: `next dev` — `/dashboard/whatsapp-templates` redirects correctly when unauthenticated; the webhook route's GET handshake correctly 403s with a wrong token and 200-echoes the challenge with a correct one; POST correctly 401s with no valid signature; `/api/health` unaffected.
+- The worker's dual startup paths (Redis NOT CONFIGURED → idles cleanly; Redis configured → connects and registers both workers) were re-verified after the tsup→tsx fix.
+- As with every prior phase, nothing here has been exercised against real external services — no live Postgres, no live Meta WhatsApp Business Account, no live Redis beyond local ad hoc smoke tests. `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_APP_SECRET`/`WHATSAPP_VERIFY_TOKEN` are NOT CONFIGURED in this environment; a real end-to-end message (Meta → webhook → worker → AI → reply → Meta) has not happened.
+
+**Known, accepted limitations (documented, not blocking):**
+- Text messages only — no media/attachments (images, documents, location, etc.), which would need S3-compatible Storage that isn't wired up yet (same gap noted in Phase 6 for knowledge-base file upload).
+- No delivery/read-receipt status tracking — Meta sends these as separate webhook events, not handled.
+- Customer phone matching for inbound messages is an exact string match on `Customer.phone` — no E.164 normalization, so a Customer entered with different formatting than WhatsApp's own `from` field (digits only, country code, no separators) won't be matched and a duplicate Customer gets created instead.
+- The outbound worker doesn't detect a closed 24-hour window and auto-switch to a template — without live credentials to see Meta's actual rejection error shape, adding that special-case handling would be guessing. Staff send a template explicitly via the Inbox instead.
+- `WhatsAppTemplate` is a local registry, not synced from Meta — staff must enter the name/language/body exactly as approved; nothing here validates that against Meta's own records.
+- Conflict prevention / idempotency here (like Phase 7's booking conflict prevention) is unverified against real concurrent load or an actual Meta webhook redelivery — the two-layer design (BullMQ job-id dedupe + DB unique constraint) is standard practice but hasn't been exercised for real.
 
 ## PHASE 9 — Automations ⏳ not started
 

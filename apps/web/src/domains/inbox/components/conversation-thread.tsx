@@ -13,6 +13,7 @@ import {
 import { listMessages, sendMessage, type MessageWithSender } from "@/domains/inbox/messages/actions";
 import { detectConversationIntent, generateDraftReply } from "@/domains/ai-agent/actions";
 import { listAssignableUsers } from "@/domains/auth/users";
+import { SendTemplateDialog } from "@/domains/whatsapp/components/send-template-dialog";
 import { CONVERSATIONS_KEY } from "@/domains/inbox/components/conversation-list";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -100,6 +101,14 @@ export function ConversationThread({ conversationId }: { conversationId: string 
     );
   }
 
+  function appendSentMessage(message: MessageWithSender) {
+    queryClient.setQueryData<MessageWithSender[]>(messagesKey(conversationId), (prev) => [
+      ...(prev ?? []),
+      message,
+    ]);
+    patchConversation({ messages: [{ body: message.body, createdAt: message.createdAt }] });
+  }
+
   const sendMutation = useMutation({
     mutationFn: sendMessage,
     onSuccess: (result) => {
@@ -107,11 +116,7 @@ export function ConversationThread({ conversationId }: { conversationId: string 
         toast.error(result.error);
         return;
       }
-      queryClient.setQueryData<MessageWithSender[]>(messagesKey(conversationId), (prev) => [
-        ...(prev ?? []),
-        result.data,
-      ]);
-      patchConversation({ messages: [{ body: result.data.body, createdAt: result.data.createdAt }] });
+      appendSentMessage(result.data);
       setDraft("");
     },
     onError: () => toast.error("Something went wrong"),
@@ -245,6 +250,9 @@ export function ConversationThread({ conversationId }: { conversationId: string 
               {intentMutation.data.data.reasoning}
             </span>
           ))}
+        {conversation.channel === "WHATSAPP" && (
+          <SendTemplateDialog conversationId={conversationId} onSent={appendSentMessage} />
+        )}
         <Button
           type="button"
           variant="outline"

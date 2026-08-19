@@ -13,8 +13,9 @@ Under active development, following the phase-gated workflow defined in [MASTER_
 - PHASE 4 — Universal Inbox ✅
 - PHASE 5 — AI Core ✅
 - PHASE 6 — RAG & Knowledge ✅
-- PHASE 7 — Booking Engine ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
-- PHASE 8 — WhatsApp Integration ⏳ next
+- PHASE 7 — Booking Engine ✅
+- PHASE 8 — WhatsApp Integration ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
+- PHASE 9 — Automations ⏳ next
 
 ## Stack
 

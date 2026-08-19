@@ -9,6 +9,7 @@ export const tenantProfileSchema = z.object({
   phone: z.string().max(30).optional().or(z.literal("")),
   website: z.string().url().max(255).optional().or(z.literal("")),
   description: z.string().max(2000).optional().or(z.literal("")),
+  whatsappPhoneNumberId: z.string().max(50).optional().or(z.literal("")),
 });
 export type TenantProfileInput = z.infer<typeof tenantProfileSchema>;
 

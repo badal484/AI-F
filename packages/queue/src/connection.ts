@@ -5,10 +5,10 @@ export function isRedisConfigured(): boolean {
 }
 
 /**
- * Shared ioredis connection, reused by every BullMQ Queue/Worker registered
- * in later phases (Phase 8 WhatsApp, Phase 9 Automations, Phase 6 embedding
- * jobs, etc.) — BullMQ recommends one connection per process, not one per
- * queue.
+ * Shared ioredis connection factory. BullMQ recommends one connection per
+ * process, not one per queue/worker — apps/worker creates exactly one and
+ * passes it to every Queue/Worker it registers; apps/web creates its own
+ * (short-lived, per serverless invocation) when it needs to enqueue a job.
  */
 export function createRedisConnection(): Redis {
   if (!isRedisConfigured()) {

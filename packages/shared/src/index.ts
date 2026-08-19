@@ -7,4 +7,5 @@ export * from "./schemas/crm";
 export * from "./schemas/inbox";
 export * from "./schemas/knowledge";
 export * from "./schemas/booking";
+export * from "./schemas/whatsapp";
 export * from "./utils";

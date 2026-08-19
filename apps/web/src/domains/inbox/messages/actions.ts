@@ -2,8 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { getTenantDb, type Message, type User } from "@aif/db";
-import { sendMessageSchema, type SendMessageInput, type DataActionResult } from "@aif/shared";
+import { enqueueWhatsAppOutbound, isRedisConfigured } from "@aif/queue";
+import { createLogger, logNotConfigured, sendMessageSchema, type SendMessageInput, type DataActionResult } from "@aif/shared";
 import { requireTenantContext, UnauthorizedError } from "@/domains/auth/guard";
+
+const logger = createLogger("web:inbox");
 
 export type MessageWithSender = Message & { sender: Pick<User, "id" | "name" | "email"> | null };
 
@@ -32,7 +35,10 @@ export async function sendMessage(input: SendMessageInput): Promise<DataActionRe
     const { conversationId, senderType, body } = parsed.data;
     const tenantDb = getTenantDb(context.tenantId);
 
-    const conversation = await tenantDb.conversation.findUnique({ where: { id: conversationId } });
+    const conversation = await tenantDb.conversation.findUnique({
+      where: { id: conversationId },
+      include: { customer: { select: { phone: true } } },
+    });
     if (!conversation) {
       return { error: "Conversation not found" };
     }
@@ -58,6 +64,26 @@ export async function sendMessage(input: SendMessageInput): Promise<DataActionRe
         include: { sender: { select: { id: true, name: true, email: true } } },
       });
     });
+
+    // A staff reply in a WhatsApp conversation needs to actually go out
+    // over WhatsApp, not just be recorded — enqueue it for apps/worker's
+    // outbound processor (the one place that calls the real API; see
+    // packages/queue). If Redis isn't configured, the message still saves
+    // (staff sees it in the inbox) but nothing is dispatched — logged,
+    // not faked, per MASTER_INSTRUCTIONS.md §7.
+    if (senderType === "STAFF" && conversation.channel === "WHATSAPP" && conversation.customer?.phone) {
+      if (isRedisConfigured()) {
+        await enqueueWhatsAppOutbound({
+          tenantId: context.tenantId,
+          conversationId,
+          messageId: message.id,
+          toPhoneNumber: conversation.customer.phone,
+          body: message.body,
+        });
+      } else {
+        logNotConfigured(logger, "Redis", ["REDIS_URL"]);
+      }
+    }
 
     revalidatePath("/dashboard/inbox");
     return { data: message };
