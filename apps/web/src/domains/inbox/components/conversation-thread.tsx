@@ -31,6 +31,17 @@ const STATUS_LABELS: Record<(typeof CONVERSATION_STATUSES)[number], string> = {
   CLOSED: "Closed",
 };
 
+// Phase 16 — Advanced AI (Sentiment analysis, Multilingual): each
+// CUSTOMER message carries an optional sentiment/languageCode, set
+// asynchronously by draftReply()'s analysis pass, not guaranteed present
+// (analysis can fail or simply not have run yet — see packages/ai's
+// analyzeMessage). Absent means "not analyzed," not "neutral."
+const SENTIMENT_VARIANT: Record<string, "outline" | "secondary" | "destructive"> = {
+  POSITIVE: "secondary",
+  NEUTRAL: "outline",
+  NEGATIVE: "destructive",
+};
+
 function messagesKey(conversationId: string) {
   return ["messages", conversationId] as const;
 }
@@ -217,10 +228,20 @@ export function ConversationThread({ conversationId }: { conversationId: string 
             >
               {message.body}
             </div>
-            <span className="text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {message.senderType === "STAFF" ? message.sender?.name || message.sender?.email || "Staff" : "Customer"}
               {" · "}
               {new Date(message.createdAt).toLocaleString()}
+              {message.sentiment && (
+                <Badge variant={SENTIMENT_VARIANT[message.sentiment]} className="text-[10px]">
+                  {message.sentiment.toLowerCase()}
+                </Badge>
+              )}
+              {message.languageCode && message.languageCode.toLowerCase() !== "en" && (
+                <Badge variant="outline" className="text-[10px] uppercase">
+                  {message.languageCode}
+                </Badge>
+              )}
             </span>
           </div>
         ))}

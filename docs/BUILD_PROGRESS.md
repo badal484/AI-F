@@ -357,7 +357,27 @@ MASTER_INSTRUCTIONS.md names this phase with no further detail — interpreted a
 - No CI-level dependency/container vulnerability scanning gate — Phase 14 investigated this repo's one standing `npm audit` finding but didn't automate a policy for future ones; no established severity threshold to gate on yet.
 - No layer-cache optimization in the Dockerfile (whole-repo `COPY . .` before `npm ci`, rather than a staged "package.json files first" pattern) — a deliberate simplicity-over-cache-efficiency tradeoff given this couldn't be validated with real Docker either way; revisit once it's actually been built somewhere with Docker available.
 
-## PHASE 16 — Advanced AI ⏳ not started
+## PHASE 16 — Advanced AI ✅ (2026-08-19)
+
+MASTER_INSTRUCTIONS.md names this phase "Multilingual, Sentiment analysis" — both built on infrastructure that already existed (Phase 5's `draftReply()`/`detectIntent()`, Phase 11's `AiInteractionLog`/Analytics) rather than starting fresh.
+
+**Built:**
+- `packages/ai/src/analyze.ts`'s `analyzeMessage()` — a small, fast `generateObject` classification (sentiment + ISO 639-1 language code) for a single message, separate from `detectIntent()`'s existing manual/on-demand classification.
+- Schema: `Sentiment` enum, `Message.sentiment`/`languageCode` (both nullable — `senderType = CUSTOMER` only, null means "not analyzed," never a default value).
+- `draftReply()` (`packages/ai/src/reply.ts`) now accepts an optional `latestCustomerMessageId` and, when given, fires `analyzeMessage()` *in parallel* with the main tool-calling reply generation (no added latency) and persists the result to that `Message` row once both settle — decoupled from whether the reply itself succeeds (still runs and persists even if `generateText` throws). All three real callers (WhatsApp inbound worker, website widget route, Inbox's manual "Draft AI reply" action) needed only a one-line addition each — same "instrument the one shared implementation" pattern as `AiInteractionLog` (Phase 11).
+- System prompt updated: explicitly instructs the AI to reply in the customer's own language (previously undefined behavior, not deliberately English-only — LLMs are natively multilingual, the prompt just never said to do this).
+- UI: the Inbox shows a small sentiment badge + non-English language badge next to each analyzed customer message. `/dashboard/analytics` gained a fourth breakdown card ("Customer sentiment"), reusing Phase 11's exact `BarBreakdown`/`zeroFillCounts` pattern — counts only messages that were actually analyzed, not a misleading "everything un-analyzed = neutral" default.
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 11 workspaces.
+- The "extract the latest customer message from history" logic (central to which message actually gets analyzed) checked against 4 hand-picked cases (last-not-first selection, no-user-message-yet, empty history, single message) before trusting it.
+- Smoke test: `next dev` — `/dashboard/inbox` and `/dashboard/analytics` both correctly 307-redirect when unauthenticated; `/api/health` unaffected.
+- **Not verified end-to-end:** the actual `analyzeMessage()` AI call, or the Inbox/Analytics UI rendering real sentiment/language data — no `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`DATABASE_URL` configured in this environment, same standing gap as every AI-dependent feature in every prior phase.
+
+**Known, accepted limitations (documented, not blocking):**
+- No automatic escalation from a negative sentiment score — the existing `escalateToHuman` tool call already has full conversational context to make that judgment within the same reply-generation pass; a second, independent hard-coded rule risks conflicting with it rather than improving on it, and wasn't actually asked for.
+- "Multilingual" here means the AI assistant's own conversational ability, not dashboard/widget UI localization (translated interface strings, RTL) — that's a materially larger, separate undertaking, already flagged as a known limitation in Phase 10's docs and not revisited here.
+- No retroactive analysis of messages sent before this phase — `sentiment`/`languageCode` are set going forward only; existing `Message` rows stay `null` (correctly reflecting "not analyzed," not reprocessed).
 
 ## PHASE 17 — Voice AI ⏳ not started
 

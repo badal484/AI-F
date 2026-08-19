@@ -161,6 +161,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       role: m.senderType === "CUSTOMER" ? ("user" as const) : ("assistant" as const),
       content: m.body,
     })),
+    latestCustomerMessageId: customerMessage.id,
   });
 
   if (draft.escalated) {

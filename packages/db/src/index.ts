@@ -22,6 +22,7 @@ export type {
   ConversationStatus,
   Message,
   MessageSender,
+  Sentiment,
   KnowledgeDocument,
   DocumentStatus,
   DocumentChunk,

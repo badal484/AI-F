@@ -135,6 +135,11 @@ export function AnalyticsDashboard() {
               description="By status"
               rows={data.appointmentsByStatus.map((a) => ({ key: a.key, count: a.count }))}
             />
+            <BarBreakdown
+              title="Customer sentiment"
+              description="Analyzed messages only (Phase 16)"
+              rows={data.customerSentiment.map((s) => ({ key: s.key, count: s.count }))}
+            />
           </div>
         </>
       )}

@@ -21,8 +21,9 @@ Under active development, following the phase-gated workflow defined in [MASTER_
 - PHASE 12 — Billing ✅
 - PHASE 13 — Platform Admin Dashboard ✅
 - PHASE 14 — Security Hardening ✅
-- PHASE 15 — Production Infrastructure & CI/CD ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
-- PHASE 16 — Advanced AI ⏳ next
+- PHASE 15 — Production Infrastructure & CI/CD ✅
+- PHASE 16 — Advanced AI ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
+- PHASE 17 — Voice AI ⏳ next
 
 ## Stack
 

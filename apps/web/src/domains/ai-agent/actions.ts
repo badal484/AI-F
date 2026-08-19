@@ -49,8 +49,14 @@ export async function generateDraftReply(conversationId: string): Promise<DataAc
       role: m.senderType === "CUSTOMER" ? ("user" as const) : ("assistant" as const),
       content: m.body,
     }));
+    const latestCustomerMessageId = [...messages].reverse().find((m) => m.senderType === "CUSTOMER")?.id;
 
-    const result = await draftReply({ tenantId: context.tenantId, conversationId, history });
+    const result = await draftReply({
+      tenantId: context.tenantId,
+      conversationId,
+      history,
+      latestCustomerMessageId,
+    });
     return { data: result };
   } catch (err) {
     if (err instanceof UnauthorizedError) return { error: err.message };

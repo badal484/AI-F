@@ -60,6 +60,13 @@ enum MessageSender {
   STAFF
 }
 
+/// Phase 16's "Sentiment analysis" — see Message.sentiment.
+enum Sentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
 /// Agency is the white-label reseller owner sitting above one or more Tenants.
 /// Inert until Phase 18 (White-Label / Reseller Architecture) but modeled now
 /// so Tenant does not need a breaking schema change later.
@@ -410,6 +417,17 @@ model Message {
   /// Message row. Null for staff/manually-logged messages, which have no
   /// external id.
   externalId     String?
+  /// Set only for senderType = CUSTOMER, and only once analyzed — see
+  /// packages/ai/src/analyze.ts. Null for STAFF/AI messages and for any
+  /// CUSTOMER message whose analysis hasn't run or failed (analysis
+  /// failures are logged and swallowed, never block the message itself
+  /// from being saved). Powers the Inbox's per-message sentiment/language
+  /// badges and the Analytics dashboard's sentiment breakdown.
+  sentiment      Sentiment?
+  /// ISO 639-1 (optionally + region, e.g. "pt-BR") code of the language
+  /// this message was written in — same analysis pass and same
+  /// null-means-not-analyzed convention as `sentiment` above.
+  languageCode   String?
   createdAt      DateTime      @default(now())
   tenant         Tenant        @relation(fields: [tenantId], references: [id])
 

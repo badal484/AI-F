@@ -1,5 +1,6 @@
 export { isAiConfigured, missingAiEnvVars, getModel } from "./provider";
 export { detectIntent, INTENTS, type Intent, type DetectedIntent } from "./intent";
+export { analyzeMessage, SENTIMENTS, type SentimentLabel, type MessageAnalysis } from "./analyze";
 export { draftReply, type DraftReplyMessage, type DraftReplyResult } from "./reply";
 export { chunkText } from "./rag/chunk";
 export { embedText, embedTexts, isEmbeddingConfigured, EMBEDDING_MODEL } from "./rag/embed";

@@ -100,6 +100,7 @@ export function startWhatsAppInboundWorker(connection: Redis): Worker<WhatsAppIn
           role: m.senderType === "CUSTOMER" ? ("user" as const) : ("assistant" as const),
           content: m.body,
         })),
+        latestCustomerMessageId: message.id,
       });
 
       if (draft.escalated) {

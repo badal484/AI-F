@@ -1,6 +1,7 @@
 "use server";
 
 import { getTenantDb } from "@aif/db";
+import { SENTIMENTS } from "@aif/ai";
 import { LEAD_STAGES, CONVERSATION_CHANNELS, APPOINTMENT_STATUSES, type DataActionResult } from "@aif/shared";
 import { requireTenantContext, UnauthorizedError } from "@/domains/auth/guard";
 
@@ -24,6 +25,8 @@ export interface AnalyticsSummary {
   conversationsByChannel: CountByKey[];
   leadsByStage: CountByKey[];
   appointmentsByStatus: CountByKey[];
+  /** Only customer messages that were actually analyzed (Phase 16) — un-analyzed messages aren't counted in any bucket here, rather than being misrepresented as NEUTRAL. */
+  customerSentiment: CountByKey[];
   ai: AiEvaluationSummary;
 }
 
@@ -41,10 +44,15 @@ export async function getAnalyticsSummary(): Promise<DataActionResult<AnalyticsS
     const context = await requireTenantContext();
     const db = getTenantDb(context.tenantId);
 
-    const [conversationGroups, leadGroups, appointmentGroups, aiLogs] = await Promise.all([
+    const [conversationGroups, leadGroups, appointmentGroups, sentimentGroups, aiLogs] = await Promise.all([
       db.conversation.groupBy({ by: ["channel"], _count: { _all: true } }),
       db.lead.groupBy({ by: ["stage"], _count: { _all: true } }),
       db.appointment.groupBy({ by: ["status"], _count: { _all: true } }),
+      db.message.groupBy({
+        by: ["sentiment"],
+        where: { senderType: "CUSTOMER", sentiment: { not: null } },
+        _count: { _all: true },
+      }),
       db.aiInteractionLog.findMany({
         select: { escalated: true, leadCaptured: true, bookingAttempted: true, booked: true, error: true, durationMs: true },
       }),
@@ -70,6 +78,12 @@ export async function getAnalyticsSummary(): Promise<DataActionResult<AnalyticsS
         appointmentsByStatus: zeroFillCounts(
           APPOINTMENT_STATUSES,
           appointmentGroups.map((g) => ({ key: g.status, count: g._count._all })),
+        ),
+        customerSentiment: zeroFillCounts(
+          SENTIMENTS,
+          sentimentGroups
+            .filter((g): g is typeof g & { sentiment: NonNullable<typeof g.sentiment> } => g.sentiment !== null)
+            .map((g) => ({ key: g.sentiment, count: g._count._all })),
         ),
         ai: {
           totalInteractions,
