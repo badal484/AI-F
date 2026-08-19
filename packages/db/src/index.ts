@@ -28,4 +28,10 @@ export type {
   Appointment,
   AppointmentStatus,
   WhatsAppTemplate,
+  AutomationRule,
+  AutomationTrigger,
+  AutomationActionType,
+  AutomationRun,
+  AutomationRunStatus,
+  Reminder,
 } from "./generated/prisma/client";

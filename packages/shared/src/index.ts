@@ -8,4 +8,5 @@ export * from "./schemas/inbox";
 export * from "./schemas/knowledge";
 export * from "./schemas/booking";
 export * from "./schemas/whatsapp";
+export * from "./schemas/automations";
 export * from "./utils";

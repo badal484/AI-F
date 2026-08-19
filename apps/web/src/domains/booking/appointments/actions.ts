@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getTenantDb, type Appointment } from "@aif/db";
 import { computeAvailableSlots, bookAppointment, type AvailabilityResult } from "@aif/booking";
+import { cancelAutomationRunsForEntity } from "@aif/automations";
 import {
   checkAvailabilitySchema,
   createAppointmentSchema,
@@ -121,6 +122,13 @@ export async function updateAppointmentStatus(
         staffMember: { select: { name: true } },
       },
     });
+
+    // Cancel any still-pending automation reminders (e.g. a WhatsApp
+    // reminder scheduled before this appointment starts) — sending one
+    // for an appointment that's no longer happening would be wrong.
+    if (parsed.data.status === "CANCELLED") {
+      await cancelAutomationRunsForEntity(context.tenantId, appointment.id);
+    }
 
     revalidatePath("/dashboard/appointments");
     return { data: appointment };

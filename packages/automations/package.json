@@ -1,5 +1,5 @@
 {
-  "name": "@aif/booking",
+  "name": "@aif/automations",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,13 +10,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@aif/automations": "*",
     "@aif/db": "*",
-    "@aif/shared": "*",
-    "luxon": "^3.7.2",
-    "zod": "^4.4.3"
-  },
-  "devDependencies": {
-    "@types/luxon": "^3.7.4"
+    "@aif/queue": "*",
+    "@aif/shared": "*"
   }
 }

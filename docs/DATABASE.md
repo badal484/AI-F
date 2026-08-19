@@ -2,7 +2,7 @@
 
 PostgreSQL via Supabase. Prisma ORM (v7, driver-adapter mode — see `docs/ARCHITECTURE.md` for why). Schema source of truth: `packages/db/prisma/schema.prisma`.
 
-## Current schema (through Phase 8 — WhatsApp Integration)
+## Current schema (through Phase 9 — Automations)
 
 ```
 Agency (1) ──< (N) Tenant (1) ──< (N) User ──< (N) Lead (assignedTo)
@@ -14,13 +14,16 @@ Agency (1) ──< (N) Tenant (1) ──< (N) User ──< (N) Lead (assignedTo)
                         ├──< (N) StaffMember >── (0..1) Location
                         │              ├── (0..1) User
                         │              └──< (N) Appointment
-                        ├──< (N) Customer (1) ──< (N) Lead, Conversation, Appointment
-                        ├──< (N) Lead (1) ──< (N) Conversation
+                        ├──< (N) Customer (1) ──< (N) Lead, Conversation, Appointment, Reminder
+                        ├──< (N) Lead (1) ──< (N) Conversation, Reminder
                         ├──< (N) Tag >──< (N) Customer, Lead  (implicit m2m)
                         ├──< (N) Conversation (1) ──< (N) Message, Appointment
                         ├──< (N) KnowledgeDocument (1) ──< (N) DocumentChunk
                         ├──< (N) Appointment
-                        └──< (N) WhatsAppTemplate
+                        ├──< (N) WhatsAppTemplate (1) ──< (N) AutomationRule
+                        ├──< (N) AutomationRule (1) ──< (N) AutomationRun
+                        ├──< (N) AutomationRun
+                        └──< (N) Reminder
 ```
 
 - **Agency** — a white-label reseller owner sitting above one or more Tenants. Inert until Phase 18; modeled now so `Tenant` doesn't need a breaking schema change later.
@@ -42,21 +45,24 @@ Agency (1) ──< (N) Tenant (1) ──< (N) User ──< (N) Lead (assignedTo)
 - **DocumentChunk** — one embeddable slice of a KnowledgeDocument's `content` (plain fixed-size windowing with overlap, `packages/ai/src/rag/chunk.ts` — no LLM call needed for chunking itself). Its `embedding` column is a pgvector vector, which needs its own section below because Prisma can't represent it like a normal field.
 - **Appointment** — a booked slot for a `Service` at a `Location`, optionally with a specific `StaffMember`, `Customer`, and/or `Conversation` (an AI- or staff-booked appointment made mid-chat). `startAt`/`endAt` are real UTC instants (`timestamptz`) — `Location.timezone` is only used to interpret `LocationHours`' wall-clock strings when *computing* availability (`packages/booking`), never stored on the Appointment itself. `customerName` is required directly on the row (mirroring `Lead`'s own name/email/phone fields) so every appointment identifies who it's for even without a linked `Customer`. `status`: `SCHEDULED | CONFIRMED | CANCELLED | COMPLETED | NO_SHOW`.
 - **WhatsAppTemplate** — a local record of a message template Meta has already approved for this tenant (`name`, `language`, `bodyText` with `{{1}}`/`{{2}}`/... placeholders). Not synced from Meta — staff enter it to match what was actually approved in Meta Business Manager. Needed to message a customer outside Meta's 24-hour customer-service window, when a free-form send would be rejected.
+- **AutomationRule** — a tenant-configured "when X happens, after N minutes, do Y" rule (Phase 9). `trigger` (`APPOINTMENT_CREATED | LEAD_CREATED | LEAD_STAGE_CHANGED`), `triggerStage` (only for `LEAD_STAGE_CHANGED`), `delayMinutes` (meaning depends on trigger — see `docs/ARCHITECTURE.md`'s Automations section), `actionType` (`SEND_WHATSAPP_TEMPLATE | CREATE_REMINDER`) with its own config (`whatsappTemplateId` or `reminderTitle`), `isEnabled`.
+- **AutomationRun** — one scheduled/completed firing of an `AutomationRule` against one entity (an Appointment or Lead id, in `entityId` — not a Prisma relation, since it can point at either model). `status` (`PENDING | SENT | SKIPPED | CANCELLED | FAILED`) plus `@@unique([ruleId, entityId])` is both the idempotency guard and the cancellation mechanism — see "Automation run idempotency" below.
+- **Reminder** — a staff-facing to-do, created by an `AutomationRule`'s `CREATE_REMINDER` action. `dueAt`, `isCompleted`, optionally linked to a `Lead` and/or `Customer`.
 
-Later phases add further tenant-scoped models under this same Tenant (AutomationRule, Subscription, etc.) per the sketch in `docs/INITIAL_AUDIT.md` §3.2.
+Later phases add further tenant-scoped models under this same Tenant (Subscription, etc.) per the sketch in `docs/INITIAL_AUDIT.md` §3.2.
 
 ## Tenant isolation
 
 Enforced at the ORM layer via a Prisma Client Extension (`packages/db/src/tenant.ts`), not by convention:
 
-- `TENANT_SCOPED_MODELS` is the single source of truth for which models carry a `tenantId` column (`User`, `Location`, `LocationHours`, `Service`, `StaffMember`, `Customer`, `Lead`, `Tag`, `Conversation`, `Message`, `KnowledgeDocument`, `DocumentChunk`, `Appointment`, `WhatsAppTemplate`). **Every new tenant-scoped model added to `schema.prisma` must be added to this set**, or the extension silently won't protect it.
+- `TENANT_SCOPED_MODELS` is the single source of truth for which models carry a `tenantId` column (`User`, `Location`, `LocationHours`, `Service`, `StaffMember`, `Customer`, `Lead`, `Tag`, `Conversation`, `Message`, `KnowledgeDocument`, `DocumentChunk`, `Appointment`, `WhatsAppTemplate`, `AutomationRule`, `AutomationRun`, `Reminder`). **Every new tenant-scoped model added to `schema.prisma` must be added to this set**, or the extension silently won't protect it.
 - `getTenantDb(tenantId)` returns a Prisma client with `tenantId` auto-injected into `where` (reads/updates/deletes) and `data` (creates) for every operation against a scoped model. The caller cannot omit or override it. Call sites also pass `tenantId` explicitly in `create`/`upsert` `data` (TypeScript can't see the runtime injection, so the field is still required at compile time) — the extension's injection is what actually enforces it, the explicit value is defense-in-depth.
 - `SELF_SCOPED_MODELS` handles the one model whose own `id` *is* the tenant boundary rather than a separate `tenantId` column: `Tenant` itself. Through `getTenantDb()`, reads/updates against `Tenant` are restricted to `where: { id: tenantId }` — used by the Settings page to read/update the current tenant's own profile without reaching for `getPlatformDb()`. `create`/`delete`/etc. on `Tenant` are deliberately unsupported through this path (tenant creation happens during sign-up, before a `tenantId` exists — see `getPlatformDb()` below).
 - Application code (`apps/web`, `apps/worker`) must never import `PrismaClient` directly — only `getTenantDb(tenantId)` or `getPlatformDb()`, both exported from `@aif/db`.
 - `tenantId` must always be derived server-side from the authenticated session (`resolveTenantContext()` / `requireTenantContext()` / `requireWriteAccess()` in `apps/web/src/domains/auth/`) or a verified job payload — never trusted from client input.
 - `getPlatformDb()` bypasses tenant scoping entirely. It exists for exactly three legitimate uses: (1) resolving which tenant a bare Supabase session belongs to, before a `tenantId` exists to scope with; (2) the Platform Admin Dashboard (Phase 13); and (3), added Phase 8, resolving which tenant an inbound WhatsApp webhook is for (`apps/web/src/app/api/webhooks/whatsapp/route.ts`) by its `phone_number_id` — a webhook has no Supabase session either, and here it's the `X-Hub-Signature-256` check (not a session) that makes trusting the payload's claimed `phone_number_id` safe. Its name and import path are deliberately distinct from `getTenantDb()` so any cross-tenant access is visually obvious in a diff.
-- Foreign keys that point *within* the same tenant (e.g. `StaffMember.locationId`, `Lead.customerId`/`assignedToId`, `Conversation.customerId`/`leadId`/`assignedToId`, or a many-to-many `tags: { connect/set: [...] }`) are **not** automatically validated as belonging to that tenant just because the extension scopes the top-level row's own operation — a nested relation write inside `data` is not re-scoped. Every call site accepting a foreign id from input must separately confirm it resolves through the same `getTenantDb(tenantId)` client before using it. Patterns: `assertLocationBelongsToTenant()` / `assertBelongsToTenant()` (single FK — `apps/web/src/domains/business-core/staff/actions.ts`, `apps/web/src/domains/crm/leads/actions.ts`, `apps/web/src/domains/inbox/conversations/actions.ts`) and `assertTagsBelongToTenant()` (id array for an m2m relation — `apps/web/src/domains/crm/shared.ts`).
-- Write access is split into two tiers via `apps/web/src/domains/auth/guard.ts`: `requireWriteAccess()` (OWNER/ADMIN only) gates *business configuration* — Tenant profile, Locations, Services, Staff, Tags, and (Phase 8) creating/deleting WhatsApp templates, since they require Meta pre-approval and what's entered must match exactly — while `requireTenantContext()` (any authenticated role) gates *day-to-day work* — Customers, Leads, everything in the Inbox, Knowledge documents, Appointments, and (Phase 8) actually *sending* a template message to a conversation. `AGENT` exists specifically for that day-to-day tier; an earlier pass of Phase 3/4 incorrectly gated Customer/Lead/Inbox mutations behind `requireWriteAccess()` and was corrected before commit — see `docs/BUILD_PROGRESS.md`'s Phase 4 entry. Phases 7 and 8 applied the lesson from the start.
+- Foreign keys that point *within* the same tenant (e.g. `StaffMember.locationId`, `Lead.customerId`/`assignedToId`, `Conversation.customerId`/`leadId`/`assignedToId`, `AutomationRule.whatsappTemplateId`, or a many-to-many `tags: { connect/set: [...] }`) are **not** automatically validated as belonging to that tenant just because the extension scopes the top-level row's own operation — a nested relation write inside `data` is not re-scoped. Every call site accepting a foreign id from input must separately confirm it resolves through the same `getTenantDb(tenantId)` client before using it. Patterns: `assertLocationBelongsToTenant()` / `assertBelongsToTenant()` / `assertTemplateBelongsToTenant()` (single FK — `apps/web/src/domains/business-core/staff/actions.ts`, `apps/web/src/domains/crm/leads/actions.ts`, `apps/web/src/domains/inbox/conversations/actions.ts`, `apps/web/src/domains/automations/rules/actions.ts`) and `assertTagsBelongToTenant()` (id array for an m2m relation — `apps/web/src/domains/crm/shared.ts`).
+- Write access is split into two tiers via `apps/web/src/domains/auth/guard.ts`: `requireWriteAccess()` (OWNER/ADMIN only) gates *business configuration* — Tenant profile, Locations, Services, Staff, Tags, creating/deleting WhatsApp templates (Phase 8), and creating/editing/toggling/deleting Automation rules (Phase 9) — while `requireTenantContext()` (any authenticated role) gates *day-to-day work* — Customers, Leads, everything in the Inbox, Knowledge documents, Appointments, sending a template message to a conversation (Phase 8), and completing a Reminder (Phase 9). `AGENT` exists specifically for that day-to-day tier; an earlier pass of Phase 3/4 incorrectly gated Customer/Lead/Inbox mutations behind `requireWriteAccess()` and was corrected before commit — see `docs/BUILD_PROGRESS.md`'s Phase 4 entry. Phases 7, 8, and 9 applied the lesson from the start.
 - `DocumentChunk.embedding` is a **third** isolation path, alongside `TENANT_SCOPED_MODELS` and `SELF_SCOPED_MODELS` — see the pgvector section below. It's a pgvector column Prisma can't represent as a normal field, so it's completely invisible to `getTenantDb()`'s extension (which only wraps model methods, not raw SQL) and is isolated instead by `packages/db/src/vector.ts` requiring `tenantId` as a parameter on every function and baking `tenant_id = ...` into the raw SQL itself.
 
 ## Multi-table writes
@@ -104,3 +110,14 @@ MASTER_INSTRUCTIONS.md §4 requires webhooks to be strictly idempotent — Meta 
 2. **The `@@unique([tenantId, externalId])` constraint on `Message`.** The final guard, for the case a redelivery slips past #1 (e.g. the first job already completed and aged out of BullMQ's retention window before the redelivery arrives): `apps/worker/src/queues/whatsapp-inbound.ts` catches the resulting `Prisma.PrismaClientKnownRequestError` with code `P2002` and treats it as "already processed," not an error.
 
 Both layers are unverified against a live database and a real Meta webhook redelivery — like everything else DB/external-integration-related in this environment — see `docs/BUILD_PROGRESS.md`'s Phase 8 entry.
+
+## Automation run idempotency & cancellation
+
+Phase 9's `AutomationRun` reuses the same two-layer idempotency shape as WhatsApp webhooks, plus a cancellation mechanism built the same way:
+
+1. **`@@unique([ruleId, entityId])` on `AutomationRun`.** `scheduleAutomationRuns()` (`packages/automations`) `upsert`s rather than `create`s — if the same rule is ever scheduled twice for the same entity (e.g. a `Lead` re-entering a stage it already passed through once), the second call finds the existing row and leaves it untouched (`update: {}`) instead of creating a duplicate. A documented tradeoff: a rule fires at most once per (rule, entity) pair, ever — favors "don't spam" over "always re-fire on every repeat transition."
+2. **BullMQ job-id dedupe**, same pattern as WhatsApp: `enqueueAutomationRun()` sets the job id to `automation-run:${runId}`, so re-enqueuing the same `AutomationRun` (which can't happen anyway given #1, but matches the established idiom) wouldn't double-schedule.
+
+**Cancellation reuses status, not BullMQ job removal.** There's no code path that reaches into Redis to delete a specific delayed job — `cancelAutomationRunsForEntity()` just flips still-`PENDING` runs to `CANCELLED` in Postgres (called by `updateAppointmentStatus` when an appointment is cancelled), and `apps/worker/src/queues/automation-run.ts` checks `status === "PENDING"` at fire time before doing anything, so a cancelled run's BullMQ job still fires on schedule but becomes a no-op. This is simpler and cheaper than tracking/removing jobs by id, at the cost of the job sitting in Redis until its original delay elapses either way — acceptable for reminder-scale volumes.
+
+Unverified against a live database, like everything else DB-related in this environment — see `docs/BUILD_PROGRESS.md`'s Phase 9 entry.

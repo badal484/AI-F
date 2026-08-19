@@ -110,6 +110,9 @@ model Tenant {
   documentChunks     DocumentChunk[]
   appointments       Appointment[]
   whatsappTemplates  WhatsAppTemplate[]
+  automationRules    AutomationRule[]
+  automationRuns     AutomationRun[]
+  reminders          Reminder[]
 
   @@index([agencyId])
   @@map("tenants")
@@ -265,6 +268,7 @@ model Customer {
   tags          Tag[]
   conversations Conversation[]
   appointments  Appointment[]
+  reminders     Reminder[]
 
   @@index([tenantId])
   @@map("customers")
@@ -295,6 +299,7 @@ model Lead {
 
   tags          Tag[]
   conversations Conversation[]
+  reminders     Reminder[]
 
   @@index([tenantId])
   @@index([customerId])
@@ -508,7 +513,122 @@ model WhatsAppTemplate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  automationRules AutomationRule[]
+
   @@unique([tenantId, name])
   @@index([tenantId])
   @@map("whatsapp_templates")
+}
+
+enum AutomationTrigger {
+  APPOINTMENT_CREATED
+  LEAD_CREATED
+  LEAD_STAGE_CHANGED
+}
+
+enum AutomationActionType {
+  SEND_WHATSAPP_TEMPLATE
+  CREATE_REMINDER
+}
+
+enum AutomationRunStatus {
+  PENDING
+  SENT
+  SKIPPED
+  CANCELLED
+  FAILED
+}
+
+/// A tenant-configured "when X happens, after some delay, do Y" rule —
+/// Phase 9's Triggers/Delays/Reminders. Scheduling is event-driven (fired
+/// the moment the trigger's real write happens — see
+/// packages/automations/src/schedule.ts), never polled, and delivery runs
+/// through apps/worker like every other background job in this repo
+/// (packages/queue's automation-run queue).
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model AutomationRule {
+  id       String            @id @default(cuid())
+  tenantId String
+  tenant   Tenant            @relation(fields: [tenantId], references: [id])
+  name     String
+  trigger  AutomationTrigger
+  /// Only meaningful when trigger = LEAD_STAGE_CHANGED: the specific stage
+  /// transition that fires this rule. Null for every other trigger.
+  triggerStage LeadStage?
+  /// Minutes offset from the trigger's anchor time. For APPOINTMENT_CREATED
+  /// this counts BACKWARD from the appointment's startAt (a reminder sent
+  /// before the appointment starts). For LEAD_CREATED / LEAD_STAGE_CHANGED
+  /// it counts FORWARD from the moment the trigger fired (a follow-up sent
+  /// after). See packages/automations/src/schedule.ts.
+  delayMinutes Int                  @default(0)
+  actionType   AutomationActionType
+  /// Required (and only meaningful) when actionType = SEND_WHATSAPP_TEMPLATE.
+  whatsappTemplateId String?
+  whatsappTemplate   WhatsAppTemplate? @relation(fields: [whatsappTemplateId], references: [id])
+  /// Required (and only meaningful) when actionType = CREATE_REMINDER — the
+  /// staff-facing Reminder's title text.
+  reminderTitle String?
+  isEnabled     Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  runs AutomationRun[]
+
+  @@index([tenantId])
+  @@index([tenantId, trigger, isEnabled])
+  @@map("automation_rules")
+}
+
+/// One scheduled (or completed) firing of an AutomationRule against a
+/// specific entity. Exists for two reasons: idempotency (the unique
+/// constraint below stops the same rule from double-scheduling against the
+/// same entity — see scheduleAutomationRuns()'s upsert) and cancellation
+/// (the worker checks status = PENDING at fire time rather than trying to
+/// remove the underlying BullMQ delayed job — see apps/worker's
+/// automation-run processor).
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model AutomationRun {
+  id       String         @id @default(cuid())
+  tenantId String
+  tenant   Tenant         @relation(fields: [tenantId], references: [id])
+  ruleId   String
+  rule     AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  /// The Appointment or Lead id this run was scheduled for (whichever the
+  /// rule's trigger applies to) — not a Prisma relation, since it can
+  /// point at either model depending on the rule.
+  entityId     String
+  scheduledFor DateTime
+  status       AutomationRunStatus @default(PENDING)
+  error        String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([ruleId, entityId])
+  @@index([tenantId])
+  @@index([status, scheduledFor])
+  @@map("automation_runs")
+}
+
+/// A staff-facing to-do created by an AutomationRule's CREATE_REMINDER
+/// action.
+///
+/// TENANT-SCOPED MODEL — see User's doc comment above; the same rule applies.
+model Reminder {
+  id                String    @id @default(cuid())
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id])
+  title             String
+  dueAt             DateTime
+  isCompleted       Boolean   @default(false)
+  relatedLeadId     String?
+  relatedLead       Lead?     @relation(fields: [relatedLeadId], references: [id])
+  relatedCustomerId String?
+  relatedCustomer   Customer? @relation(fields: [relatedCustomerId], references: [id])
+  createdAt         DateTime  @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, isCompleted, dueAt])
+  @@map("reminders")
 }

@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { getTenantDb } from "@aif/db";
+import { scheduleAutomationRuns } from "@aif/automations";
 
 /**
  * Saves a real Lead row via the same CRM (Phase 3) this tenant's staff use
@@ -36,6 +37,7 @@ export function createCaptureLeadTool(tenantId: string, conversationId: string) 
         await tx.conversation.update({ where: { id: conversationId }, data: { leadId: created.id } });
         return created;
       });
+      await scheduleAutomationRuns({ trigger: "LEAD_CREATED", tenantId, entityId: lead.id });
       return { leadId: lead.id, captured: true };
     },
   });

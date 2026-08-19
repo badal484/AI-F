@@ -12,6 +12,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.39",
     "@ai-sdk/openai": "^4.0.43",
+    "@aif/automations": "^0.1.0",
     "@aif/booking": "^0.1.0",
     "@aif/db": "*",
     "@aif/shared": "*",

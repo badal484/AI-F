@@ -5,6 +5,9 @@ export {
   whatsappOutboundJobSchema,
   enqueueWhatsAppInbound,
   enqueueWhatsAppOutbound,
+  automationRunJobSchema,
+  enqueueAutomationRun,
   type WhatsAppInboundJob,
   type WhatsAppOutboundJob,
+  type AutomationRunJob,
 } from "./queues";

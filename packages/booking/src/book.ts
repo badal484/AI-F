@@ -1,4 +1,5 @@
 import { getTenantDb, Prisma, type Appointment } from "@aif/db";
+import { scheduleAutomationRuns } from "@aif/automations";
 
 export interface BookAppointmentParams {
   tenantId: string;
@@ -87,6 +88,18 @@ export async function bookAppointment(params: BookAppointmentParams): Promise<Bo
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+
+    // Fire-and-forget: schedules any APPOINTMENT_CREATED automation
+    // rules (e.g. a WhatsApp reminder before the appointment) for both
+    // dashboard-booked and AI-booked appointments, since this is the one
+    // shared implementation both call — see this file's own doc comment.
+    // Never allowed to fail the booking itself; see scheduleAutomationRuns().
+    await scheduleAutomationRuns({
+      trigger: "APPOINTMENT_CREATED",
+      tenantId: params.tenantId,
+      entityId: appointment.id,
+      startAt: appointment.startAt,
+    });
 
     return { booked: true, appointment };
   } catch (err) {

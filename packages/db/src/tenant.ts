@@ -24,6 +24,9 @@ const TENANT_SCOPED_MODELS = new Set<string>([
   "DocumentChunk",
   "Appointment",
   "WhatsAppTemplate",
+  "AutomationRule",
+  "AutomationRun",
+  "Reminder",
 ]);
 
 /**

@@ -3,6 +3,7 @@ import { createLogger, logNotConfigured } from "@aif/shared";
 import { createRedisConnection, isRedisConfigured } from "@aif/queue";
 import { startWhatsAppInboundWorker } from "./queues/whatsapp-inbound";
 import { startWhatsAppOutboundWorker } from "./queues/whatsapp-outbound";
+import { startAutomationRunWorker } from "./queues/automation-run";
 
 const logger = createLogger("worker");
 
@@ -22,6 +23,7 @@ async function main() {
 
       workers.push(startWhatsAppInboundWorker(connection));
       workers.push(startWhatsAppOutboundWorker(connection));
+      workers.push(startAutomationRunWorker(connection));
       logger.info({ queues: workers.length }, "Registered BullMQ workers");
     } catch (err) {
       logger.error({ err }, "Failed to connect to Redis — queues will not run");

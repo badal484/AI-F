@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getTenantDb, type Lead, type Tag, type TenantDb } from "@aif/db";
+import { scheduleAutomationRuns } from "@aif/automations";
 import {
   createLeadSchema,
   updateLeadSchema,
@@ -69,6 +70,7 @@ export async function createLead(input: CreateLeadInput): Promise<DataActionResu
       data: { ...rest, tenantId: context.tenantId, tags: { connect: tagIds.map((id) => ({ id })) } },
       include: { tags: true },
     });
+    await scheduleAutomationRuns({ trigger: "LEAD_CREATED", tenantId: context.tenantId, entityId: lead.id });
 
     revalidatePath("/dashboard/leads");
     return { data: lead };
@@ -124,6 +126,12 @@ export async function updateLeadStage(input: UpdateLeadStageInput): Promise<Data
       where: { id: parsed.data.id },
       data: { stage: parsed.data.stage },
       include: { tags: true },
+    });
+    await scheduleAutomationRuns({
+      trigger: "LEAD_STAGE_CHANGED",
+      tenantId: context.tenantId,
+      entityId: lead.id,
+      toStage: lead.stage,
     });
 
     revalidatePath("/dashboard/leads");

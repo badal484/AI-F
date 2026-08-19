@@ -5,6 +5,7 @@ import { createRedisConnection } from "./connection";
 export const QUEUE_NAMES = {
   whatsappInbound: "whatsapp-inbound",
   whatsappOutbound: "whatsapp-outbound",
+  automationRun: "automation-run",
 } as const;
 
 export const whatsappInboundJobSchema = z.object({
@@ -65,6 +66,37 @@ export async function enqueueWhatsAppOutbound(payload: WhatsAppOutboundJob): Pro
     const queue = new Queue(QUEUE_NAMES.whatsappOutbound, { connection });
     await queue.add("outbound-message", parsed, {
       jobId: `wa-outbound:${parsed.messageId}`,
+      attempts: 3,
+      backoff: { type: "exponential", delay: 5000 },
+    });
+    await queue.close();
+  } finally {
+    await connection.quit();
+  }
+}
+
+export const automationRunJobSchema = z.object({
+  tenantId: z.string().min(1),
+  runId: z.string().min(1),
+});
+export type AutomationRunJob = z.infer<typeof automationRunJobSchema>;
+
+/**
+ * Enqueues one AutomationRun for delayed delivery — `delayMs` is how long
+ * BullMQ should hold the job before making it eligible to run (Phase 9's
+ * "Delays"). jobId is the AutomationRun's own id, which is itself unique
+ * per (ruleId, entityId) at the DB level (see schema.prisma), so this is
+ * idempotent even if scheduleAutomationRuns() is ever called twice for the
+ * same trigger.
+ */
+export async function enqueueAutomationRun(payload: AutomationRunJob, delayMs: number): Promise<void> {
+  const parsed = automationRunJobSchema.parse(payload);
+  const connection = createRedisConnection();
+  try {
+    const queue = new Queue(QUEUE_NAMES.automationRun, { connection });
+    await queue.add("automation-run", parsed, {
+      jobId: `automation-run:${parsed.runId}`,
+      delay: Math.max(0, delayMs),
       attempts: 3,
       backoff: { type: "exponential", delay: 5000 },
     });
