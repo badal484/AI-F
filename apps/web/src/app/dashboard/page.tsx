@@ -13,6 +13,19 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
+  if (context.isSuspended) {
+    return (
+      <Card className="max-w-md border-destructive/30 bg-destructive/5">
+        <CardHeader>
+          <CardTitle className="text-destructive">Workspace suspended</CardTitle>
+          <CardDescription>
+            This workspace has been suspended and no longer has dashboard access. Contact support to reactivate it.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div>

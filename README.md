@@ -18,8 +18,9 @@ Under active development, following the phase-gated workflow defined in [MASTER_
 - PHASE 9 — Automations ✅
 - PHASE 10 — Website Widget ✅
 - PHASE 11 — Analytics & AI Evaluation ✅
-- PHASE 12 — Billing ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
-- PHASE 13 — Platform Admin Dashboard ⏳ next
+- PHASE 12 — Billing ✅
+- PHASE 13 — Platform Admin Dashboard ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
+- PHASE 14 — Security Hardening ⏳ next
 
 ## Stack
 

@@ -65,11 +65,15 @@ export async function POST(request: NextRequest) {
   for (const message of messages) {
     const tenant = await getPlatformDb().tenant.findUnique({
       where: { whatsappPhoneNumberId: message.phoneNumberId },
-      select: { id: true },
+      select: { id: true, isSuspended: true },
     });
 
     if (!tenant) {
       logger.warn({ phoneNumberId: message.phoneNumberId }, "No tenant registered for this WhatsApp phone_number_id");
+      continue;
+    }
+    if (tenant.isSuspended) {
+      logger.warn({ tenantId: tenant.id }, "Ignoring WhatsApp message for a suspended tenant");
       continue;
     }
 

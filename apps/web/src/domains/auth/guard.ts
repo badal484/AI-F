@@ -9,6 +9,9 @@ export async function requireTenantContext(): Promise<TenantContext> {
   if (!context) {
     throw new UnauthorizedError("Not authenticated");
   }
+  if (context.isSuspended) {
+    throw new UnauthorizedError("This workspace has been suspended. Contact support to reactivate it.");
+  }
   return context;
 }
 

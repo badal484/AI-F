@@ -115,7 +115,16 @@ export function getTenantDb(tenantId: string) {
           }
 
           if (!TENANT_SCOPED_MODELS.has(model)) {
-            return query(args);
+            // Neither tenant-scoped nor self-scoped — e.g. PlatformAdmin
+            // (Phase 13) or the still-inert Agency — genuinely has no
+            // tenantId to inject, so silently passing the query through
+            // unscoped would let a getTenantDb(tenantId) client read/write
+            // platform-wide data by accident (a typo away from a real
+            // isolation leak). Refuse instead: these models are only ever
+            // legitimate through getPlatformDb().
+            throw new Error(
+              `getTenantDb() cannot query "${model}" — it isn't a tenant-scoped model. Use getPlatformDb() instead if this is intentional, or add "${model}" to TENANT_SCOPED_MODELS if it should have been tenant-scoped.`,
+            );
           }
 
           switch (op) {
@@ -165,24 +174,33 @@ export type TenantDb = ReturnType<typeof getTenantDb>;
 
 /**
  * Cross-tenant access, restricted to a short, deliberate list of legitimate
- * uses where no tenantId/session exists yet to scope with: (1) resolving
- * which tenant a bare Supabase session belongs to; (2) the Platform Admin
- * Dashboard (Phase 13); (3) resolving which tenant an inbound WhatsApp
- * webhook is for, by its phone_number_id — a webhook has no session, and
- * the X-Hub-Signature-256 check is what makes trusting that lookup safe;
- * (4) resolving which tenant a website widget message is for, by the
- * tenantId in its URL path — a widget visitor has no session either, and
- * the Origin-header check against that tenant's own widgetAllowedOrigins
- * is what makes trusting it safe (see apps/web's /api/widget/[tenantId]
- * route); and (5) resolving which tenant a Stripe webhook event is for,
- * by the Stripe customer id on the event — a Stripe webhook has no
- * session either, and Stripe's own signature check
- * (verifyAndParseWebhookEvent, packages/billing) is what makes trusting
- * the event's claimed customer id safe (see apps/web's
- * /api/webhooks/stripe route). In every case, getPlatformDb() is used
- * ONLY for that initial identity resolution — the actual read/write work
- * that follows switches to getTenantDb(tenantId) once the tenantId is
- * confirmed legitimate.
+ * uses. Two shapes of use:
+ *
+ * Identity resolution — no tenantId/session exists yet to scope with, so
+ * getPlatformDb() is used ONLY to resolve one, and the actual read/write
+ * work that follows switches to getTenantDb(tenantId) once it's confirmed
+ * legitimate: (1) resolving which tenant a bare Supabase session belongs
+ * to; (2) resolving which tenant an inbound WhatsApp webhook is for, by
+ * its phone_number_id — a webhook has no session, and the
+ * X-Hub-Signature-256 check is what makes trusting that lookup safe; (3)
+ * resolving which tenant a website widget message is for, by the tenantId
+ * in its URL path — a widget visitor has no session either, and the
+ * Origin-header check against that tenant's own widgetAllowedOrigins is
+ * what makes trusting it safe (see apps/web's /api/widget/[tenantId]
+ * route); (4) resolving which tenant a Stripe webhook event is for, by the
+ * Stripe customer id on the event — a Stripe webhook has no session
+ * either, and Stripe's own signature check (verifyAndParseWebhookEvent,
+ * packages/billing) is what makes trusting the event's claimed customer
+ * id safe (see apps/web's /api/webhooks/stripe route).
+ *
+ * Genuinely cross-tenant reporting/admin — (5) the Platform Admin
+ * Dashboard (Phase 13, apps/web's /platform-admin routes), gated by
+ * requirePlatformAdmin() (apps/web/src/domains/platform-admin/guard.ts),
+ * an entirely separate auth check from tenant Users/roles. This is the
+ * one legitimate case that DOESN'T switch to getTenantDb() afterward — a
+ * cross-tenant list of every Tenant is the actual point, not a stepping
+ * stone to a single tenantId.
+ *
  * Deliberately named and imported differently from getTenantDb() so any
  * cross-tenant access is visually obvious in a diff or code review.
  * Application code serving an already-tenant-scoped request must NEVER

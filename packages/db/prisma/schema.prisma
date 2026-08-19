@@ -108,6 +108,13 @@ model Tenant {
   /// webhook. See docs/ARCHITECTURE.md's "Billing" section for why that
   /// ordering matters (Stripe doesn't guarantee webhook delivery order).
   stripeCustomerId      String?  @unique
+  /// Platform-admin kill switch (Phase 13) — checked by
+  /// resolveTenantContext() on every request, so a suspended tenant's
+  /// users are blocked from the dashboard entirely, not just cosmetically
+  /// flagged. See docs/ARCHITECTURE.md's "Platform Admin Dashboard"
+  /// section for what else this does and doesn't affect.
+  isSuspended           Boolean  @default(false)
+  suspendedAt           DateTime?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -740,4 +747,30 @@ model Subscription {
 
   @@index([tenantId])
   @@map("subscriptions")
+}
+
+/// A person with cross-tenant, platform-operator access (Phase 13) — NOT
+/// a member of any Tenant, and deliberately not modeled as a special
+/// User.role value, since a User row is inherently scoped to exactly one
+/// tenantId and a platform admin oversees all of them. Linked to Supabase
+/// Auth the same way User is (supabaseUserId), so the same login flow
+/// works for both — apps/web's requirePlatformAdmin() checks the session
+/// against this table, entirely separately from resolveTenantContext().
+///
+/// There is deliberately no self-serve signup or in-app way to create a
+/// row here — see docs/ARCHITECTURE.md's "Platform Admin Dashboard"
+/// section for why exposing that would be a privilege-escalation risk,
+/// not a missing feature.
+///
+/// NEITHER TENANT-SCOPED NOR SELF-SCOPED — only ever queried through
+/// getPlatformDb(). getTenantDb() refuses to query this model at all
+/// (see packages/db/src/tenant.ts).
+model PlatformAdmin {
+  id             String   @id @default(cuid())
+  supabaseUserId String   @unique
+  email          String   @unique
+  name           String?
+  createdAt      DateTime @default(now())
+
+  @@map("platform_admins")
 }

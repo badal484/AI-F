@@ -288,7 +288,28 @@ MASTER_INSTRUCTIONS.md names this phase "Stripe SaaS architecture" — built as:
 - No usage-based/metered billing, no multiple-simultaneous-subscriptions support (one `Subscription` per tenant, by schema design), no annual billing toggle, no in-app invoice history (all handled by the Stripe Portal instead).
 - Plan feature lists (what Starter/Pro actually include) aren't shown anywhere in the UI — only tier name and real price — since nothing is enforced yet, listing feature claims that aren't backed by real enforcement would itself be a fabricated fact.
 
-## PHASE 13 — Platform Admin Dashboard ⏳ not started
+## PHASE 13 — Platform Admin Dashboard ✅ (2026-08-19)
+
+The first genuinely cross-tenant surface in this app — everywhere else "tenant" is the unit of isolation; here, seeing across all of them at once is the point.
+
+**Built:**
+- Schema: `PlatformAdmin` (a new, standalone identity — not a `User.role` value, since `User` is inherently scoped to one `tenantId` and a platform admin oversees all of them; linked to Supabase Auth the same way `User` is, no separate login flow). `Tenant.isSuspended`/`suspendedAt` — a real kill switch, not cosmetic (see below).
+- `packages/db/src/tenant.ts`: `getTenantDb()` now **throws** for any model that's neither tenant-scoped nor self-scoped, instead of silently passing the query through unscoped — a defensive tightening made *because of* `PlatformAdmin` being the first genuinely tenant-less model in the schema (the still-inert `Agency` was the only other one, and had never actually been queried). Before this, the gap was latent but unreachable; without the throw, `getTenantDb(anyTenantId).platformAdmin.findMany()` would have silently returned every platform admin, unscoped — closed before it could ever be hit by a real typo.
+- `apps/web/src/domains/platform-admin/guard.ts`'s `requirePlatformAdmin()` — an entirely separate check from `requireTenantContext()`/`requireWriteAccess()`, since a platform admin has no `Role` within any tenant. **No self-serve or in-app way to create a `PlatformAdmin` row** — deliberate: exposing one would be a privilege-escalation path (anyone who could reach it could grant themselves cross-tenant access to every business on the platform). Provisioning the first one requires direct DB access, documented in `docs/ARCHITECTURE.md`, same bootstrapping problem every real platform has for its first admin account.
+- `apps/web/src/domains/platform-admin/actions.ts` — `listTenants()`, `getPlatformStats()` (total/suspended tenant counts, tenants by plan — FREE backed out of the total since it has no `Subscription` row of its own), `setTenantSuspended()`. All via `getPlatformDb()`, never `getTenantDb()` — this domain's entire point is cross-tenant access.
+- **Suspension is real enforcement, applied at every entry point that already resolves a Tenant row, not a cosmetic flag:** `resolveTenantContext()` (blocks the whole dashboard), the WhatsApp webhook route (drops inbound messages, same as an unmapped phone number), and the website widget's origin resolution (stops accepting messages, same path as a disabled widget). `resolveTenantContext()` returns a real context with `isSuspended: true` rather than `null` for a suspended tenant specifically so `/dashboard` can show a real "workspace suspended" message instead of a confusing silent redirect to `/login`; `requireTenantContext()` throws a clear `UnauthorizedError` for every other action, which already flows through the same `{ error }` pattern every action uses.
+- UI: a new `/platform-admin` route group (own layout, own nav-free header, gated by `requirePlatformAdmin()` — not nested under `/dashboard`, which is tenant-scoped) — stat cards + a tenant table with inline Suspend/Reactivate actions (Suspend behind a confirmation dialog, matching Automations' delete-confirmation pattern).
+
+**Verified (2026-08-19):**
+- `npm run typecheck`, `npm run lint`, `npm run build` — clean across all 11 workspaces.
+- Smoke test: `next dev` — `/platform-admin` and `/dashboard` both correctly 307-redirect when unauthenticated; `/api/health` unaffected.
+- The `getTenantDb()` defensive-throw change was verified by typecheck/lint/build plus code review (traced every existing call site against `TENANT_SCOPED_MODELS`/`SELF_SCOPED_MODELS` to confirm nothing currently-working would newly throw) rather than a standalone runtime script — lower-risk, simple control-flow addition, not the kind of crypto/date-math logic this repo's standalone-script discipline is reserved for.
+- **Not verified:** an actual `PlatformAdmin` row/login (none exists — bootstrapping one requires direct DB access this environment doesn't have either, same `DATABASE_URL` NOT CONFIGURED gap as every other phase), the suspended-tenant UI states, or the WhatsApp/widget suspension-drop paths against real traffic.
+
+**Known, accepted limitations (documented, not blocking):**
+- An authenticated-but-not-platform-admin visitor to `/platform-admin` sees the plain login form again rather than a distinct "access denied" page — `requirePlatformAdmin()` is still the actual gate either way, just not the most polished UX for that specific case.
+- No audit log of suspend/reactivate actions beyond `Tenant.suspendedAt` (who suspended it, and why, aren't recorded).
+- No UI/flow for creating an Agency or attaching Tenants to one — `Agency` stays inert until Phase 18, per MASTER_INSTRUCTIONS.md's own phase ordering.
 
 ## PHASE 14 — Security Hardening ⏳ not started
 

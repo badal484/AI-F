@@ -38,9 +38,9 @@ async function resolveAllowedOrigin(tenantId: string, originHeader: string | nul
   if (!originHeader) return null;
   const tenant = await getPlatformDb().tenant.findUnique({
     where: { id: tenantId },
-    select: { widgetEnabled: true, widgetAllowedOrigins: true },
+    select: { widgetEnabled: true, widgetAllowedOrigins: true, isSuspended: true },
   });
-  if (!tenant || !tenant.widgetEnabled) return null;
+  if (!tenant || !tenant.widgetEnabled || tenant.isSuspended) return null;
   if (!tenant.widgetAllowedOrigins.includes(originHeader)) return null;
   return originHeader;
 }

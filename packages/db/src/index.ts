@@ -38,4 +38,5 @@ export type {
   Subscription,
   PlanTier,
   SubscriptionStatus,
+  PlatformAdmin,
 } from "./generated/prisma/client";

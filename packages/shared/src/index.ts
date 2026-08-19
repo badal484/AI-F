@@ -11,4 +11,5 @@ export * from "./schemas/whatsapp";
 export * from "./schemas/automations";
 export * from "./schemas/widget";
 export * from "./schemas/billing";
+export * from "./schemas/platform-admin";
 export * from "./utils";
