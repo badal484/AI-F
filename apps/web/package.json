@@ -18,6 +18,7 @@
     "@aif/queue": "^0.1.0",
     "@aif/shared": "^0.1.0",
     "@aif/whatsapp": "^0.1.0",
+    "@aif/voice": "^0.1.0",
     "@base-ui/react": "^1.7.0",
     "@hookform/resolvers": "^5.9.1",
     "@supabase/ssr": "^0.12.4",

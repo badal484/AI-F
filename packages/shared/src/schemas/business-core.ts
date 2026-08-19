@@ -14,6 +14,11 @@ export const tenantProfileSchema = z.object({
   website: z.string().url().max(255).optional().or(z.literal("")),
   description: z.string().max(2000).optional().or(z.literal("")),
   whatsappPhoneNumberId: z.string().max(50).optional().or(z.literal("")),
+  voicePhoneNumber: z
+    .string()
+    .regex(/^\+[1-9]\d{6,14}$/, "must be in E.164 format, e.g. +15551234567")
+    .optional()
+    .or(z.literal("")),
   widgetEnabled: z.boolean().default(false),
   widgetAllowedOrigins: z
     .array(z.string().regex(originPattern, "must be an origin like https://example.com (no path)"))

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const id = z.string().min(1);
 
-export const CONVERSATION_CHANNELS = ["WEBSITE", "WHATSAPP", "MANUAL"] as const;
+export const CONVERSATION_CHANNELS = ["WEBSITE", "WHATSAPP", "MANUAL", "VOICE"] as const;
 export const CONVERSATION_STATUSES = ["OPEN", "HUMAN_REQUIRED", "CLOSED"] as const;
 
 /**

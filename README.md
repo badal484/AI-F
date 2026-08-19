@@ -22,8 +22,9 @@ Under active development, following the phase-gated workflow defined in [MASTER_
 - PHASE 13 — Platform Admin Dashboard ✅
 - PHASE 14 — Security Hardening ✅
 - PHASE 15 — Production Infrastructure & CI/CD ✅
-- PHASE 16 — Advanced AI ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
-- PHASE 17 — Voice AI ⏳ next
+- PHASE 16 — Advanced AI ✅
+- PHASE 17 — Voice AI ✅ (see [docs/BUILD_PROGRESS.md](./docs/BUILD_PROGRESS.md) for details and what's still NOT CONFIGURED)
+- PHASE 18 — White-Label / Reseller Architecture ⏳ next
 
 ## Stack
 

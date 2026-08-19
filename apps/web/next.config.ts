@@ -41,6 +41,7 @@ const nextConfig: NextConfig = {
     "@aif/whatsapp",
     "@aif/automations",
     "@aif/billing",
+    "@aif/voice",
   ],
   async headers() {
     return [

@@ -39,6 +39,7 @@ enum ConversationChannel {
   WEBSITE
   WHATSAPP
   MANUAL
+  VOICE
 }
 
 /// HUMAN_REQUIRED is set when the AI (Phase 5) hands a conversation off to
@@ -115,6 +116,13 @@ model Tenant {
   /// webhook. See docs/ARCHITECTURE.md's "Billing" section for why that
   /// ordering matters (Stripe doesn't guarantee webhook delivery order).
   stripeCustomerId      String?  @unique
+  /// The Twilio phone number (E.164, e.g. "+15551234567") this tenant
+  /// receives calls on (Phase 17) — one platform-level Twilio account
+  /// (TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN) can hold numbers for many
+  /// tenants, so this is what an inbound call webhook (which carries the
+  /// dialed "To" number but no tenant info) gets mapped back to a tenant
+  /// by — the same role whatsappPhoneNumberId plays for WhatsApp.
+  voicePhoneNumber      String?  @unique
   /// Platform-admin kill switch (Phase 13) — checked by
   /// resolveTenantContext() on every request, so a suspended tenant's
   /// users are blocked from the dashboard entirely, not just cosmetically
@@ -381,6 +389,13 @@ model Conversation {
   /// anonymous website visitor to the same thread, since there's no phone
   /// number or login to key off like WhatsApp/dashboard channels have.
   widgetVisitorId String?
+  /// Set only for channel = VOICE (Phase 17) — Twilio's CallSid,
+  /// correlating the multiple synchronous webhook round-trips of one
+  /// phone call (initial connect, then one per <Gather> turn) to the same
+  /// Conversation. Same correlation role widgetVisitorId plays for an
+  /// anonymous website visitor, just keyed differently since a call has
+  /// no client-generated id of its own to reuse.
+  voiceCallSid String?
   lastMessageAt DateTime            @default(now())
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
@@ -394,6 +409,7 @@ model Conversation {
   @@index([leadId])
   @@index([assignedToId])
   @@index([tenantId, widgetVisitorId])
+  @@index([tenantId, voiceCallSid])
   @@map("conversations")
 }
 

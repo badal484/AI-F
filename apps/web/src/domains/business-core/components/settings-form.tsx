@@ -28,6 +28,7 @@ export function SettingsForm({ tenant }: { tenant: Tenant }) {
       website: tenant.website ?? "",
       description: tenant.description ?? "",
       whatsappPhoneNumberId: tenant.whatsappPhoneNumberId ?? "",
+      voicePhoneNumber: tenant.voicePhoneNumber ?? "",
       widgetEnabled: tenant.widgetEnabled,
       widgetAllowedOrigins: tenant.widgetAllowedOrigins,
     },
@@ -85,6 +86,14 @@ export function SettingsForm({ tenant }: { tenant: Tenant }) {
         {errors.whatsappPhoneNumberId && (
           <p className="text-sm text-destructive">{errors.whatsappPhoneNumberId.message}</p>
         )}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="voice-phone-number">Voice phone number</Label>
+        <Input id="voice-phone-number" placeholder="+15551234567" {...register("voicePhoneNumber")} />
+        <p className="text-xs text-muted-foreground">
+          The Twilio phone number this business receives calls on, in E.164 format.
+        </p>
+        {errors.voicePhoneNumber && <p className="text-sm text-destructive">{errors.voicePhoneNumber.message}</p>}
       </div>
       <div className="flex items-center gap-2">
         <Controller
