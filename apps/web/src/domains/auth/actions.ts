@@ -53,6 +53,21 @@ export async function signUp(input: SignUpInput): Promise<ActionResult> {
     return { error: error?.message ?? "Could not create account" };
   }
 
+  // Supabase deliberately returns success (same user id, no error) when
+  // signUp() is called again for an email that already has an account —
+  // even an unconfirmed one — to avoid leaking which emails are
+  // registered. Without this check, retrying signup (e.g. after not
+  // seeing a confirmation email) would fall through to tx.user.create()
+  // below and crash on the supabaseUserId unique constraint, surfacing
+  // only the generic catch-all error instead of the real, actionable one.
+  const alreadyProvisioned = await getPlatformDb().user.findUnique({
+    where: { supabaseUserId: data.user.id },
+    select: { id: true },
+  });
+  if (alreadyProvisioned) {
+    return { error: "An account with this email already exists. Check your inbox to confirm it, or sign in instead." };
+  }
+
   try {
     // Multi-table write (Tenant + User) wrapped in a transaction per
     // MASTER_INSTRUCTIONS.md §4. Tenant provisioning is a platform-level

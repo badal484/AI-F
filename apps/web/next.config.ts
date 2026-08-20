@@ -16,10 +16,14 @@ import type { NextConfig } from "next";
 function cspHeader(): string {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const connectSrc = ["'self'", supabaseUrl].filter(Boolean).join(" ");
+  // 'unsafe-eval' only in dev — Next/React's dev-mode debugging (HMR,
+  // stack-trace reconstruction) uses eval(), which this CSP otherwise
+  // blocks; never added in production, where this policy matters.
+  const scriptSrc = process.env.NODE_ENV === "development" ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" : "script-src 'self' 'unsafe-inline'";
 
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    scriptSrc,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' blob: data:",
     "font-src 'self' data:",
